@@ -1,0 +1,12 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Temp files
+*.wav
+*.aiff
