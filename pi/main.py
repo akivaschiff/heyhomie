@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import struct
@@ -12,8 +13,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-from openwakeword.model import Model
 import pyaudio
+from vosk import Model, KaldiRecognizer
 from openai import OpenAI
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -21,11 +22,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Config
-WAKE_WORD = os.environ.get("WAKE_WORD", "hey_jarvis")  # hey_jarvis, alexa, hey_mycroft, etc.
-WAKE_THRESHOLD = float(os.environ.get("WAKE_THRESHOLD", "0.5"))
+WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "hey homie").lower()
+WAKE_VARIATIONS = [WAKE_PHRASE, "hey homey", "hey homi", "a homie", "hey ho me", "hey only"]
+VOSK_MODEL_PATH = os.environ.get("VOSK_MODEL_PATH", os.path.expanduser("~/vosk-model-small-en-us-0.15"))
 PIPER_MODEL_PATH = os.environ.get("PIPER_MODEL_PATH", os.path.expanduser("~/piper-voices/en_US-lessac-medium.onnx"))
 SAMPLE_RATE = 16000
-FRAME_LENGTH = 1280  # 80ms chunks for OpenWakeWord
+FRAME_LENGTH = 4000  # 250ms chunks
 SILENCE_THRESHOLD = 500
 SILENCE_DURATION = 1.5  # seconds
 CONTEXT_TIMEOUT = 60    # seconds
@@ -45,6 +47,12 @@ Example: "I'll add hummus to the shopping list. Should I do that?"
 After user confirms with "yes", "yeah", "do it", "go ahead", etc., execute the action.
 If they say "no", "cancel", "never mind", acknowledge and don't execute.
 """
+
+
+def wake_word_detected(text: str) -> bool:
+    """Check if any wake phrase variation is in the text."""
+    text = text.lower()
+    return any(variation in text for variation in WAKE_VARIATIONS)
 
 
 class ConversationContext:
@@ -69,7 +77,8 @@ class ConversationContext:
 
 class Homie:
     def __init__(self):
-        self.oww_model = None
+        self.vosk_model = None
+        self.recognizer = None
         self.audio = None
         self.stream = None
         self.openai = OpenAI()
@@ -79,9 +88,11 @@ class Homie:
     def start(self):
         print("Starting Homie...")
 
-        # Initialize OpenWakeWord
-        print(f"Loading wake word model: {WAKE_WORD}")
-        self.oww_model = Model(wakeword_models=[WAKE_WORD])
+        # Initialize Vosk
+        print(f"Loading Vosk model from: {VOSK_MODEL_PATH}")
+        self.vosk_model = Model(VOSK_MODEL_PATH)
+        self.recognizer = KaldiRecognizer(self.vosk_model, SAMPLE_RATE)
+        self.recognizer.SetWords(True)
 
         # Initialize PyAudio
         self.audio = pyaudio.PyAudio()
@@ -93,22 +104,35 @@ class Homie:
             frames_per_buffer=FRAME_LENGTH
         )
 
-        print(f"Listening for '{WAKE_WORD.replace('_', ' ')}'...")
+        print(f"Listening for '{WAKE_PHRASE}'...")
 
         try:
             while True:
-                # Read audio chunk
                 audio_data = self.stream.read(FRAME_LENGTH, exception_on_overflow=False)
-                audio_array = np.frombuffer(audio_data, dtype=np.int16)
-
-                # Process with OpenWakeWord
-                prediction = self.oww_model.predict(audio_array)
-
-                # Check if wake word detected
-                for model_name, score in prediction.items():
-                    if score > WAKE_THRESHOLD:
-                        print(f"\n🎤 Wake word detected! ({model_name}: {score:.2f})")
-                        self.oww_model.reset()  # Reset to avoid re-triggering
+                
+                if self.recognizer.AcceptWaveform(audio_data):
+                    result = json.loads(self.recognizer.Result())
+                    text = result.get("text", "").lower()
+                    
+                    if text:  # Debug: show what Vosk hears
+                        print(f"   [Heard: '{text}']")
+                    
+                    if wake_word_detected(text):
+                        print(f"\n🎤 Wake word detected in: '{text}'")
+                        self.recognizer.Reset()
+                        self.play_listening_sound()
+                        self.handle_command()
+                else:
+                    # Check partial results too
+                    partial = json.loads(self.recognizer.PartialResult())
+                    partial_text = partial.get("partial", "").lower()
+                    
+                    if partial_text:  # Debug: show partial
+                        print(f"   [Partial: '{partial_text}']", end="\r")
+                    
+                    if wake_word_detected(partial_text):
+                        print(f"\n🎤 Wake word detected in partial: '{partial_text}'")
+                        self.recognizer.Reset()
                         self.play_listening_sound()
                         self.handle_command()
 
@@ -164,7 +188,6 @@ class Homie:
         if len(frames) < frames_per_second // 2:
             return None
 
-        # Convert to WAV bytes
         return self.frames_to_wav(frames)
 
     def frames_to_wav(self, frames: list) -> bytes:
@@ -314,6 +337,12 @@ class Homie:
 
 
 def main():
+    if not Path(VOSK_MODEL_PATH).exists():
+        print(f"Error: Vosk model not found at {VOSK_MODEL_PATH}")
+        print("Download from https://alphacephei.com/vosk/models")
+        print("Example: curl -LO https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip")
+        return
+
     if not os.environ.get("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY not set")
         return
