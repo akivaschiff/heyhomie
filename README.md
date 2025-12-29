@@ -22,46 +22,29 @@ Voice-controlled home assistant. Wake word: **"Hey Homie"**
 
 ## Setup
 
-### 1. Picovoice Wake Word
+### 1. System Dependencies
 
-1. Create account at https://console.picovoice.ai/
-2. Get your Access Key from the main dashboard
-3. Go to **Porcupine → Train Wake Word**
-4. Enter "Hey Homie", select **Raspberry Pi** (Linux / Cortex-A72)
-5. Train and download the `.ppn` file
-6. Copy to `pi/` directory
+**Mac:**
+```bash
+brew install portaudio
+```
 
-### 2. API Keys
+**Pi:**
+```bash
+sudo apt update
+sudo apt install -y python3-pip python3-venv espeak alsa-utils portaudio19-dev
+```
 
-Get keys from:
-- OpenAI: https://platform.openai.com/api-keys
-- Anthropic: https://console.anthropic.com/
-
-### 3. Pi Setup
+### 2. Python Setup
 
 ```bash
-# Install system dependencies
-sudo apt update
-sudo apt install -y python3-pip python3-venv mpg123 espeak alsa-utils
-
-# Clone and setup
-cd /home/pi
-git clone <your-repo> homie
-cd homie/pi
-
-# Create virtual environment
+cd pi
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Configure
 cp .env.example .env
 nano .env  # Add your API keys
-
-# Copy hey-homie.ppn to this directory
-
-# Test run
-python main.py
 ```
 
 ### 4. Audio Setup
