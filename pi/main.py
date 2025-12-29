@@ -1,9 +1,10 @@
-import asyncio
 import io
 import os
+import re
 import struct
 import subprocess
 import tempfile
+import time
 import wave
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ load_dotenv()
 # Config
 PORCUPINE_ACCESS_KEY = os.environ.get("PORCUPINE_ACCESS_KEY")
 WAKE_WORD_PATH = os.environ.get("WAKE_WORD_PATH", "hey-homie.ppn")
+PIPER_MODEL_PATH = os.environ.get("PIPER_MODEL_PATH", os.path.expanduser("~/piper-voices/en_US-lessac-medium.onnx"))
 SAMPLE_RATE = 16000
 SILENCE_THRESHOLD = 500
 SILENCE_DURATION = 1.5  # seconds
@@ -122,14 +124,10 @@ class Homie:
             return
         print(f"   You: {transcript}")
 
-        # Process with Claude
-        print("🤖 Thinking...")
-        response = self.process_with_claude(transcript)
-        print(f"   Homie: {response}")
-
-        # Speak response
-        print("🔊 Speaking...")
-        self.speak(response)
+        # Process with Claude (streaming) and speak sentences as they arrive
+        print("🤖 Thinking + Speaking...")
+        full_response = self.process_and_speak_streaming(transcript)
+        print(f"   [Full response: {full_response}]")
 
     def record_until_silence(self) -> bytes | None:
         """Record audio until silence is detected."""
@@ -190,25 +188,101 @@ class Homie:
             print(f"Transcription error: {e}")
             return None
 
-    def process_with_claude(self, user_message: str) -> str:
-        """Process message with Claude."""
+    def process_and_speak_streaming(self, user_message: str) -> str:
+        """Stream Claude response and speak sentences as they complete."""
         self.context.add_message("user", user_message)
+        full_response = ""
+        buffer = ""
+        sentence_endings = re.compile(r'([.!?])\s+')
+        start_time = time.time()
+        first_token_time = None
 
         try:
-            response = self.anthropic.messages.create(
-                model="claude-sonnet-4-20250514",
+            with self.anthropic.messages.stream(
+                model="claude-haiku-4-5-20251001",
                 max_tokens=300,
                 system=SYSTEM_PROMPT,
                 messages=self.context.get_messages()
-            )
+            ) as stream:
+                for text in stream.text_stream:
+                    if first_token_time is None:
+                        first_token_time = time.time()
+                        print(f"   ⚡ First token: {(first_token_time - start_time)*1000:.0f}ms")
+                    
+                    buffer += text
+                    full_response += text
+                    print(f"   📥 +\"{text}\"", end="", flush=True)
 
-            assistant_message = response.content[0].text
-            self.context.add_message("assistant", assistant_message)
-            return assistant_message
+                    # Check for complete sentences
+                    while True:
+                        match = sentence_endings.search(buffer)
+                        if not match:
+                            break
+                        
+                        # Extract sentence up to and including punctuation
+                        end_pos = match.end()
+                        sentence = buffer[:end_pos].strip()
+                        buffer = buffer[end_pos:]
+
+                        if sentence:
+                            print(f"\n   🎯 Sentence complete: \"{sentence}\"")
+                            self.speak_with_timing(sentence)
+
+            # Speak any remaining text
+            if buffer.strip():
+                print(f"\n   🎯 Final chunk: \"{buffer.strip()}\"")
+                self.speak_with_timing(buffer.strip())
+
+            self.context.add_message("assistant", full_response)
+            print(f"   ✅ Total time: {(time.time() - start_time)*1000:.0f}ms")
+            return full_response
 
         except Exception as e:
             print(f"Claude error: {e}")
+            self.speak("Sorry, I couldn't process that.")
             return "Sorry, I couldn't process that."
+
+    def speak_with_timing(self, text: str):
+        """Convert text to speech - uses macOS say or Piper on Linux."""
+        try:
+            t0 = time.time()
+            print(f"   📤 TTS: \"{text[:50]}...\"" if len(text) > 50 else f"   📤 TTS: \"{text}\"")
+            
+            if os.uname().sysname == "Darwin":
+                # macOS - use built-in say
+                subprocess.run(["say", "-v", "Samantha", text], check=True)
+                t1 = time.time()
+                print(f"   ⏹️  Done: {(t1-t0)*1000:.0f}ms")
+            else:
+                # Linux (Pi) - use Piper
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                    temp_path = f.name
+                
+                process = subprocess.run(
+                    ["piper", "--model", PIPER_MODEL_PATH, "--output_file", temp_path],
+                    input=text,
+                    capture_output=True,
+                    text=True
+                )
+                
+                t1 = time.time()
+                print(f"   🔊 Piper: {(t1-t0)*1000:.0f}ms")
+                
+                if process.returncode != 0:
+                    print(f"   Piper error: {process.stderr}")
+                    self.speak_local(text)
+                    return
+
+                t2 = time.time()
+                subprocess.run(["aplay", "-q", temp_path], check=True)
+                t3 = time.time()
+                print(f"   ⏹️  Playback: {(t3-t2)*1000:.0f}ms")
+                
+                os.unlink(temp_path)
+
+        except Exception as e:
+            print(f"TTS error: {e}")
+            self.speak_local(text)
 
     def speak(self, text: str):
         """Convert text to speech and play using OpenAI TTS."""
