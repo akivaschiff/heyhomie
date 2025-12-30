@@ -1,5 +1,5 @@
-vosk>=0.3.45
-pyaudio>=0.2.14
+pvporcupine>=4.0.0
+pvrecorder>=1.2.*
 openai>=1.30.0
 anthropic>=0.30.0
 numpy>=1.24

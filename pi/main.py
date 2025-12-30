@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import re
 import struct
@@ -13,8 +12,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import pyaudio
-from vosk import Model, KaldiRecognizer
+import pvporcupine
+from pvrecorder import PvRecorder
 from openai import OpenAI
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -22,12 +21,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Config
-WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "hey homie").lower()
-WAKE_VARIATIONS = [WAKE_PHRASE, "hey homey", "hey homi", "a homie", "hey ho me", "hey only"]
-VOSK_MODEL_PATH = os.environ.get("VOSK_MODEL_PATH", os.path.expanduser("~/vosk-model-small-en-us-0.15"))
+PORCUPINE_ACCESS_KEY = os.environ.get("PORCUPINE_ACCESS_KEY")
+WAKE_WORD_PATH = os.environ.get("WAKE_WORD_PATH", "yo-home.ppn")
+WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")  # For display purposes
 PIPER_MODEL_PATH = os.environ.get("PIPER_MODEL_PATH", os.path.expanduser("~/piper-voices/en_US-lessac-medium.onnx"))
 SAMPLE_RATE = 16000
-FRAME_LENGTH = 4000  # 250ms chunks
 SILENCE_THRESHOLD = 500
 SILENCE_DURATION = 1.5  # seconds
 CONTEXT_TIMEOUT = 60    # seconds
@@ -47,12 +45,6 @@ Example: "I'll add hummus to the shopping list. Should I do that?"
 After user confirms with "yes", "yeah", "do it", "go ahead", etc., execute the action.
 If they say "no", "cancel", "never mind", acknowledge and don't execute.
 """
-
-
-def wake_word_detected(text: str) -> bool:
-    """Check if any wake phrase variation is in the text."""
-    text = text.lower()
-    return any(variation in text for variation in WAKE_VARIATIONS)
 
 
 class ConversationContext:
@@ -77,10 +69,8 @@ class ConversationContext:
 
 class Homie:
     def __init__(self):
-        self.vosk_model = None
-        self.recognizer = None
-        self.audio = None
-        self.stream = None
+        self.porcupine = None
+        self.recorder = None
         self.openai = OpenAI()
         self.anthropic = Anthropic()
         self.context = ConversationContext()
@@ -88,53 +78,32 @@ class Homie:
     def start(self):
         print("Starting Homie...")
 
-        # Initialize Vosk
-        print(f"Loading Vosk model from: {VOSK_MODEL_PATH}")
-        self.vosk_model = Model(VOSK_MODEL_PATH)
-        self.recognizer = KaldiRecognizer(self.vosk_model, SAMPLE_RATE)
-        self.recognizer.SetWords(True)
-
-        # Initialize PyAudio
-        self.audio = pyaudio.PyAudio()
-        self.stream = self.audio.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=SAMPLE_RATE,
-            input=True,
-            frames_per_buffer=FRAME_LENGTH
+        # Initialize Porcupine
+        self.porcupine = pvporcupine.create(
+            access_key=PORCUPINE_ACCESS_KEY,
+            keyword_paths=[WAKE_WORD_PATH]
         )
 
+        # Initialize recorder
+        self.recorder = PvRecorder(
+            device_index=-1,
+            frame_length=self.porcupine.frame_length
+        )
+
+        print(f"Audio device: {self.recorder.selected_device}")
         print(f"Listening for '{WAKE_PHRASE}'...")
+
+        self.recorder.start()
 
         try:
             while True:
-                audio_data = self.stream.read(FRAME_LENGTH, exception_on_overflow=False)
-                
-                if self.recognizer.AcceptWaveform(audio_data):
-                    result = json.loads(self.recognizer.Result())
-                    text = result.get("text", "").lower()
-                    
-                    if text:  # Debug: show what Vosk hears
-                        print(f"   [Heard: '{text}']")
-                    
-                    if wake_word_detected(text):
-                        print(f"\n🎤 Wake word detected in: '{text}'")
-                        self.recognizer.Reset()
-                        self.play_listening_sound()
-                        self.handle_command()
-                else:
-                    # Check partial results too
-                    partial = json.loads(self.recognizer.PartialResult())
-                    partial_text = partial.get("partial", "").lower()
-                    
-                    if partial_text:  # Debug: show partial
-                        print(f"   [Partial: '{partial_text}']", end="\r")
-                    
-                    if wake_word_detected(partial_text):
-                        print(f"\n🎤 Wake word detected in partial: '{partial_text}'")
-                        self.recognizer.Reset()
-                        self.play_listening_sound()
-                        self.handle_command()
+                pcm = self.recorder.read()
+                keyword_index = self.porcupine.process(pcm)
+
+                if keyword_index >= 0:
+                    print(f"\n🎤 Wake word detected!")
+                    self.play_listening_sound()
+                    self.handle_command()
 
         except KeyboardInterrupt:
             print("\nStopping...")
@@ -163,41 +132,39 @@ class Homie:
         """Record audio until silence is detected."""
         frames = []
         silence_frames = 0
-        frames_per_second = SAMPLE_RATE // FRAME_LENGTH
+        frames_per_second = SAMPLE_RATE // self.porcupine.frame_length
         silence_threshold_frames = int(SILENCE_DURATION * frames_per_second)
         max_duration_frames = 30 * frames_per_second
 
         print("   Recording...")
 
         for _ in range(max_duration_frames):
-            audio_data = self.stream.read(FRAME_LENGTH, exception_on_overflow=False)
-            frames.append(audio_data)
+            pcm = self.recorder.read()
+            frames.extend(pcm)
 
-            # Check amplitude
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
-            amplitude = np.max(np.abs(audio_array))
+            amplitude = max(abs(s) for s in pcm) if pcm else 0
 
             if amplitude < SILENCE_THRESHOLD:
                 silence_frames += 1
             else:
                 silence_frames = 0
 
-            if silence_frames >= silence_threshold_frames and len(frames) > frames_per_second:
+            if silence_frames >= silence_threshold_frames and len(frames) > SAMPLE_RATE:
                 break
 
-        if len(frames) < frames_per_second // 2:
+        if len(frames) < SAMPLE_RATE // 2:
             return None
 
-        return self.frames_to_wav(frames)
+        return self.pcm_to_wav(frames)
 
-    def frames_to_wav(self, frames: list) -> bytes:
-        """Convert audio frames to WAV bytes."""
+    def pcm_to_wav(self, pcm: list) -> bytes:
+        """Convert PCM samples to WAV bytes."""
         buffer = io.BytesIO()
         with wave.open(buffer, 'wb') as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(b''.join(frames))
+            wf.writeframes(struct.pack(f'{len(pcm)}h', *pcm))
         return buffer.getvalue()
 
     def transcribe(self, audio_bytes: bytes) -> str | None:
@@ -329,18 +296,22 @@ class Homie:
             pass
 
     def cleanup(self):
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-        if self.audio:
-            self.audio.terminate()
+        if self.recorder:
+            self.recorder.stop()
+            self.recorder.delete()
+        if self.porcupine:
+            self.porcupine.delete()
 
 
 def main():
-    if not Path(VOSK_MODEL_PATH).exists():
-        print(f"Error: Vosk model not found at {VOSK_MODEL_PATH}")
-        print("Download from https://alphacephei.com/vosk/models")
-        print("Example: curl -LO https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip")
+    if not PORCUPINE_ACCESS_KEY:
+        print("Error: PORCUPINE_ACCESS_KEY not set")
+        print("Get your key at https://console.picovoice.ai/")
+        return
+
+    if not Path(WAKE_WORD_PATH).exists():
+        print(f"Error: Wake word file not found: {WAKE_WORD_PATH}")
+        print("Train your wake word at https://console.picovoice.ai/")
         return
 
     if not os.environ.get("OPENAI_API_KEY"):
