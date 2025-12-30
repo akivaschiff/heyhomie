@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import time
 import wave
+import threading
+import queue
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -118,6 +120,108 @@ def generate_chime(rising: bool = True) -> bytes:
     return combined.getvalue()
 
 
+class TTSPipeline:
+    """Async TTS pipeline - generates and plays audio without blocking Claude stream."""
+    
+    def __init__(self, openai_client):
+        self.openai = openai_client
+        self.tts_queue = queue.Queue()      # Text waiting for TTS
+        self.playback_queue = queue.Queue() # Audio waiting for playback
+        self.tts_thread = None
+        self.playback_thread = None
+        self.running = False
+    
+    def start(self):
+        """Start the TTS and playback worker threads."""
+        self.running = True
+        self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
+        self.playback_thread = threading.Thread(target=self._playback_worker, daemon=True)
+        self.tts_thread.start()
+        self.playback_thread.start()
+    
+    def stop(self):
+        """Stop the workers."""
+        self.running = False
+    
+    def submit(self, text: str):
+        """Submit text for TTS (non-blocking)."""
+        self.tts_queue.put(text)
+    
+    def finish_and_wait(self):
+        """Signal no more text coming, wait for all audio to finish playing."""
+        self.tts_queue.put(None)  # Sentinel
+        self.tts_queue.join()     # Wait for TTS to finish
+        self.playback_queue.put(None)  # Sentinel
+        self.playback_queue.join()     # Wait for playback to finish
+    
+    def _tts_worker(self):
+        """Worker thread: pull text from queue, generate audio, push to playback."""
+        while self.running:
+            try:
+                text = self.tts_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            
+            if text is None:  # Sentinel
+                self.tts_queue.task_done()
+                break
+            
+            try:
+                t0 = time.time()
+                print(f"   📤 TTS: \"{text[:50]}...\"" if len(text) > 50 else f"   📤 TTS: \"{text}\"")
+                
+                if os.uname().sysname == "Darwin":
+                    # macOS - use say command, pass text directly to playback
+                    self.playback_queue.put(("say", text))
+                else:
+                    # Linux - use OpenAI TTS
+                    response = self.openai.audio.speech.create(
+                        model="tts-1",
+                        voice="nova",
+                        input=text,
+                        response_format="mp3"
+                    )
+                    t1 = time.time()
+                    print(f"   📥 TTS response: {(t1-t0)*1000:.0f}ms")
+                    self.playback_queue.put(("mp3", response.content))
+            except Exception as e:
+                print(f"   TTS error: {e}")
+            finally:
+                self.tts_queue.task_done()
+    
+    def _playback_worker(self):
+        """Worker thread: pull audio from queue, play it."""
+        while self.running:
+            try:
+                item = self.playback_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            
+            if item is None:  # Sentinel
+                self.playback_queue.task_done()
+                break
+            
+            try:
+                audio_type, data = item
+                t0 = time.time()
+                
+                if audio_type == "say":
+                    subprocess.run(["say", "-v", "Samantha", data], check=True)
+                elif audio_type == "mp3":
+                    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                        f.write(data)
+                        temp_path = f.name
+                    subprocess.run(["mpg123", "-q", temp_path], check=True)
+                    os.unlink(temp_path)
+                
+                t1 = time.time()
+                print(f"   ⏹️  Playback: {(t1-t0)*1000:.0f}ms")
+            except Exception as e:
+                print(f"   Playback error: {e}")
+            finally:
+                self.playback_queue.task_done()
+
+
 class Homie:
     def __init__(self):
         self.porcupine = None
@@ -125,6 +229,7 @@ class Homie:
         self.openai = OpenAI()
         self.anthropic = Anthropic()
         self.context = ConversationContext()
+        self.tts_pipeline = TTSPipeline(self.openai)
         
         # Pre-generate chimes
         self.listening_chime = generate_chime(rising=True)
@@ -144,6 +249,9 @@ class Homie:
             device_index=-1,
             frame_length=self.porcupine.frame_length
         )
+        
+        # Start TTS pipeline
+        self.tts_pipeline.start()
 
         print(f"Audio device: {self.recorder.selected_device}")
         print(f"Listening for '{WAKE_PHRASE}'...")
@@ -282,11 +390,18 @@ class Homie:
 
                         if sentence:
                             print(f"\n   🎯 Sentence complete: \"{sentence}\"")
-                            self.speak(sentence)
+                            self.tts_pipeline.submit(sentence)  # Non-blocking!
 
             if buffer.strip():
                 print(f"\n   🎯 Final chunk: \"{buffer.strip()}\"")
-                self.speak(buffer.strip())
+                self.tts_pipeline.submit(buffer.strip())  # Non-blocking!
+
+            # Wait for all audio to finish playing
+            self.tts_pipeline.finish_and_wait()
+            
+            # Restart pipeline for next command
+            self.tts_pipeline = TTSPipeline(self.openai)
+            self.tts_pipeline.start()
 
             self.context.add_message("assistant", full_response)
             print(f"   ✅ Total time: {(time.time() - start_time)*1000:.0f}ms")
@@ -345,6 +460,8 @@ class Homie:
             print(f"Chime error: {e}")
 
     def cleanup(self):
+        if self.tts_pipeline:
+            self.tts_pipeline.stop()
         if self.recorder:
             self.recorder.stop()
             self.recorder.delete()
