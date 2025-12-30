@@ -23,8 +23,7 @@ load_dotenv()
 # Config
 PORCUPINE_ACCESS_KEY = os.environ.get("PORCUPINE_ACCESS_KEY")
 WAKE_WORD_PATH = os.environ.get("WAKE_WORD_PATH", "yo-home.ppn")
-WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")  # For display purposes
-PIPER_MODEL_PATH = os.environ.get("PIPER_MODEL_PATH", os.path.expanduser("~/piper-voices/en_US-lessac-medium.onnx"))
+WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")
 SAMPLE_RATE = 16000
 SILENCE_THRESHOLD = 500
 SILENCE_DURATION = 1.5  # seconds
@@ -67,6 +66,58 @@ class ConversationContext:
         return self.messages
 
 
+def generate_tone(frequency: float, duration: float, sample_rate: int = 16000, fade: bool = True) -> bytes:
+    """Generate a pleasant tone as WAV bytes."""
+    t = np.linspace(0, duration, int(sample_rate * duration), False)
+    tone = np.sin(2 * np.pi * frequency * t)
+    
+    # Add fade in/out for a softer sound
+    if fade:
+        fade_samples = int(sample_rate * 0.02)  # 20ms fade
+        tone[:fade_samples] *= np.linspace(0, 1, fade_samples)
+        tone[-fade_samples:] *= np.linspace(1, 0, fade_samples)
+    
+    # Convert to 16-bit PCM
+    tone = (tone * 32767 * 0.5).astype(np.int16)
+    
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(tone.tobytes())
+    return buffer.getvalue()
+
+
+def generate_chime(rising: bool = True) -> bytes:
+    """Generate a pleasant two-tone chime."""
+    if rising:
+        # Rising chime: "I'm listening"
+        tone1 = generate_tone(523.25, 0.1)  # C5
+        tone2 = generate_tone(659.25, 0.15)  # E5
+    else:
+        # Falling chime: "Got it, processing"
+        tone1 = generate_tone(659.25, 0.1)  # E5
+        tone2 = generate_tone(523.25, 0.15)  # C5
+    
+    # Combine tones
+    buffer1 = io.BytesIO(tone1)
+    buffer2 = io.BytesIO(tone2)
+    
+    with wave.open(buffer1, 'rb') as w1, wave.open(buffer2, 'rb') as w2:
+        frames1 = w1.readframes(w1.getnframes())
+        frames2 = w2.readframes(w2.getnframes())
+    
+    combined = io.BytesIO()
+    with wave.open(combined, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(frames1 + frames2)
+    
+    return combined.getvalue()
+
+
 class Homie:
     def __init__(self):
         self.porcupine = None
@@ -74,6 +125,10 @@ class Homie:
         self.openai = OpenAI()
         self.anthropic = Anthropic()
         self.context = ConversationContext()
+        
+        # Pre-generate chimes
+        self.listening_chime = generate_chime(rising=True)
+        self.processing_chime = generate_chime(rising=False)
 
     def start(self):
         print("Starting Homie...")
@@ -102,8 +157,12 @@ class Homie:
 
                 if keyword_index >= 0:
                     print(f"\n🎤 Wake word detected!")
-                    self.play_listening_sound()
-                    self.handle_command()
+                    self.play_chime(self.listening_chime)
+                    try:
+                        self.handle_command()
+                    except Exception as e:
+                        print(f"Error handling command: {e}")
+                    print(f"\nListening for '{WAKE_PHRASE}'...")
 
         except KeyboardInterrupt:
             print("\nStopping...")
@@ -113,6 +172,10 @@ class Homie:
     def handle_command(self):
         """Record speech, transcribe, process, respond."""
         audio = self.record_until_silence()
+        
+        # Play "got it" chime after recording stops
+        self.play_chime(self.processing_chime)
+        
         if not audio:
             print("No speech detected")
             return
@@ -219,11 +282,11 @@ class Homie:
 
                         if sentence:
                             print(f"\n   🎯 Sentence complete: \"{sentence}\"")
-                            self.speak_with_timing(sentence)
+                            self.speak(sentence)
 
             if buffer.strip():
                 print(f"\n   🎯 Final chunk: \"{buffer.strip()}\"")
-                self.speak_with_timing(buffer.strip())
+                self.speak(buffer.strip())
 
             self.context.add_message("assistant", full_response)
             print(f"   ✅ Total time: {(time.time() - start_time)*1000:.0f}ms")
@@ -231,69 +294,55 @@ class Homie:
 
         except Exception as e:
             print(f"Claude error: {e}")
-            self.speak_local("Sorry, I couldn't process that.")
+            self.speak("Sorry, I couldn't process that.")
             return "Sorry, I couldn't process that."
 
-    def speak_with_timing(self, text: str):
-        """Convert text to speech - uses macOS say or Piper on Linux."""
+    def speak(self, text: str):
+        """Convert text to speech using OpenAI TTS."""
         try:
             t0 = time.time()
             print(f"   📤 TTS: \"{text[:50]}...\"" if len(text) > 50 else f"   📤 TTS: \"{text}\"")
 
             if os.uname().sysname == "Darwin":
+                # macOS - use built-in say for speed
                 subprocess.run(["say", "-v", "Samantha", text], check=True)
-                t1 = time.time()
-                print(f"   ⏹️  Done: {(t1-t0)*1000:.0f}ms")
             else:
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                    temp_path = f.name
-
-                process = subprocess.run(
-                    ["piper", "--model", PIPER_MODEL_PATH, "--output_file", temp_path],
+                # Linux - use OpenAI TTS for better quality
+                response = self.openai.audio.speech.create(
+                    model="tts-1",
+                    voice="nova",
                     input=text,
-                    capture_output=True,
-                    text=True
+                    response_format="mp3"
                 )
 
-                t1 = time.time()
-                print(f"   🔊 Piper: {(t1-t0)*1000:.0f}ms")
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    f.write(response.content)
+                    temp_path = f.name
 
-                if process.returncode != 0:
-                    print(f"   Piper error: {process.stderr}")
-                    self.speak_local(text)
-                    return
-
-                t2 = time.time()
-                subprocess.run(["aplay", "-q", temp_path], check=True)
-                t3 = time.time()
-                print(f"   ⏹️  Playback: {(t3-t2)*1000:.0f}ms")
-
+                subprocess.run(["mpg123", "-q", temp_path], check=True)
                 os.unlink(temp_path)
+
+            t1 = time.time()
+            print(f"   ⏹️  Done: {(t1-t0)*1000:.0f}ms")
 
         except Exception as e:
             print(f"TTS error: {e}")
-            self.speak_local(text)
 
-    def speak_local(self, text: str):
-        """Local TTS fallback."""
+    def play_chime(self, chime_data: bytes):
+        """Play a chime sound."""
         try:
-            subprocess.run(["espeak", text], check=True)
-        except Exception as e:
-            print(f"Local TTS error: {e}")
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                f.write(chime_data)
+                temp_path = f.name
 
-    def play_listening_sound(self):
-        """Play a short sound to indicate listening started."""
-        try:
             if os.uname().sysname == "Darwin":
-                subprocess.run(["afplay", "/System/Library/Sounds/Tink.aiff"], check=True)
+                subprocess.run(["afplay", temp_path], check=True)
             else:
-                subprocess.run(
-                    ["speaker-test", "-t", "sine", "-f", "880", "-l", "1", "-p", "0.1"],
-                    capture_output=True,
-                    timeout=0.3
-                )
-        except:
-            pass
+                subprocess.run(["aplay", "-q", temp_path], check=True)
+
+            os.unlink(temp_path)
+        except Exception as e:
+            print(f"Chime error: {e}")
 
     def cleanup(self):
         if self.recorder:
