@@ -111,9 +111,40 @@ sudo systemctl enable homie
 sudo systemctl start homie
 ```
 
-## MCP Servers (TODO)
+## MCP Architecture
 
-- [ ] Google Sheets (pantry + shopping list)
-- [ ] Gmail
-- [ ] Web search
-- [ ] Spotify
+### MCPs
+
+| MCP | Covers |
+|-----|--------|
+| `home` | lights, AC, locks, security, routines |
+| `media` | music, podcasts, TV |
+| `productivity` | tasks, events, notes (multi-backend: calendar, Monday, etc.) |
+| `comms` | messages, contacts |
+| `shopping` | pantry, inventory, lists |
+
+### Core Homie (not MCP)
+
+| Feature | Covers |
+|---------|--------|
+| `timers` | short-term reminders, in-memory, Homie speaks when done |
+
+Timers are kept in core because they need to fire and trigger Homie's speaker directly. MCPs are request/response and can't push to Homie when a timer completes.
+
+### Reminder Routing
+
+| Phrase | Destination |
+|--------|-------------|
+| "remind me" / "remind me in X" | Core timers → Homie speaks |
+| "remind me on WhatsApp/Telegram" | `comms` MCP |
+| "create calendar event" | `productivity` MCP |
+| "add task" / "add to Monday" | `productivity` MCP |
+
+### Implementation Status
+
+- [ ] `home` MCP
+- [ ] `media` MCP
+- [ ] `productivity` MCP
+- [ ] `comms` MCP
+- [ ] `shopping` MCP
+- [ ] Core timers module
