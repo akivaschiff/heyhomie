@@ -28,7 +28,8 @@ WAKE_WORD_PATH = os.environ.get("WAKE_WORD_PATH", "yo-home.ppn")
 WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")
 SAMPLE_RATE = 16000
 SILENCE_THRESHOLD = 500
-SILENCE_DURATION = 1.5  # seconds
+SILENCE_DURATION = 1.5  # seconds of silence to stop
+MIN_RECORDING_DURATION = 3.0  # seconds before silence detection kicks in
 CONTEXT_TIMEOUT = 60    # seconds
 
 SYSTEM_PROMPT = """You are Homie, a friendly home assistant. You help with:
@@ -305,13 +306,16 @@ class Homie:
         silence_frames = 0
         frames_per_second = SAMPLE_RATE // self.porcupine.frame_length
         silence_threshold_frames = int(SILENCE_DURATION * frames_per_second)
+        min_frames = int(MIN_RECORDING_DURATION * frames_per_second)
         max_duration_frames = 30 * frames_per_second
 
         print("   Recording...")
 
+        frame_count = 0
         for _ in range(max_duration_frames):
             pcm = self.recorder.read()
             frames.extend(pcm)
+            frame_count += 1
 
             amplitude = max(abs(s) for s in pcm) if pcm else 0
 
@@ -320,7 +324,8 @@ class Homie:
             else:
                 silence_frames = 0
 
-            if silence_frames >= silence_threshold_frames and len(frames) > SAMPLE_RATE:
+            # Only check for silence after minimum recording time
+            if frame_count >= min_frames and silence_frames >= silence_threshold_frames:
                 break
 
         if len(frames) < SAMPLE_RATE // 2:
