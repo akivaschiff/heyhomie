@@ -1,8 +1,8 @@
 # Homie
 
-Voice-controlled home assistant. Wake word: **"Hey Homie"**
+Voice-controlled home assistant for Raspberry Pi. Wake word: **"Yo Home"** (customizable)
 
-## Architecture (v1 - Pi Only)
+## Architecture
 
 ```
 ┌─────────────────────────────────────┐
@@ -10,11 +10,19 @@ Voice-controlled home assistant. Wake word: **"Hey Homie"**
 │                                     │
 │  - Porcupine (local wake word)      │
 │  - OpenAI Whisper API (cloud STT)   │
-│  - Claude API + MCP (cloud)         │
+│  - Claude API (cloud LLM)           │
 │  - OpenAI TTS API (cloud)           │
-│  - Anker conference mic/speaker     │
+│  - USB conference mic/speaker       │
 └─────────────────────────────────────┘
 ```
+
+## Features
+
+- Wake word detection (Porcupine)
+- Streaming responses with sentence-by-sentence TTS
+- Parallel TTS pipeline (audio generates while Claude streams)
+- Pleasant chime feedback sounds
+- 60-second conversation context
 
 ## Cost Estimate
 
@@ -24,15 +32,9 @@ Voice-controlled home assistant. Wake word: **"Hey Homie"**
 
 ### 1. System Dependencies
 
-**Mac:**
-```bash
-brew install portaudio
-```
-
-**Pi:**
 ```bash
 sudo apt update
-sudo apt install -y python3-pip python3-venv espeak alsa-utils portaudio19-dev
+sudo apt install -y python3-pip python3-venv espeak alsa-utils mpg123
 ```
 
 ### 2. Python Setup
@@ -47,23 +49,41 @@ cp .env.example .env
 nano .env  # Add your API keys
 ```
 
-### 4. Audio Setup
+### 3. Picovoice Wake Word
 
-Make sure your Anker mic/speaker is the default device:
+1. Create account at https://console.picovoice.ai/
+2. Get your Access Key
+3. Train your wake word (e.g., "Yo Home") for Raspberry Pi
+4. Download the `.ppn` file to `pi/` directory
+
+### 4. API Keys
+
+Get keys from:
+- **Picovoice**: https://console.picovoice.ai/
+- **OpenAI**: https://platform.openai.com/api-keys
+- **Anthropic**: https://console.anthropic.com/
+
+### 5. Run
 
 ```bash
-# List audio devices
-arecord -l
-aplay -l
-
-# Test recording
-arecord -d 3 test.wav
-aplay test.wav
+python main.py
 ```
 
-If needed, set default device in `/etc/asound.conf` or `~/.asoundrc`.
+## Configuration
 
-### 5. Run on Boot (Optional)
+All constants are at the top of `main.py`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SILENCE_THRESHOLD` | 500 | Amplitude below this = silence |
+| `SILENCE_DURATION` | 1.5s | Silence before stopping recording |
+| `MIN_RECORDING_DURATION` | 3.0s | Minimum recording time |
+| `CHIME_VOLUME` | 0.2 | Chime loudness (0.0-1.0) |
+| `CONTEXT_TIMEOUT` | 60s | Conversation context timeout |
+| `CLAUDE_MODEL` | haiku-4.5 | Claude model to use |
+| `TTS_VOICE` | nova | OpenAI TTS voice |
+
+## Run on Boot (Optional)
 
 Create `/etc/systemd/system/homie.service`:
 
@@ -76,7 +96,7 @@ After=network.target sound.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/homie/pi
-Environment=PATH=/home/pi/homie/pi/venv/bin
+EnvironmentFile=/home/pi/homie/pi/.env
 ExecStart=/home/pi/homie/pi/venv/bin/python main.py
 Restart=always
 RestartSec=5
@@ -91,26 +111,9 @@ sudo systemctl enable homie
 sudo systemctl start homie
 ```
 
-## Usage
-
-1. Say "Hey Homie"
-2. Wait for beep
-3. Speak your command
-4. Wait for response
-
-60-second context window - after that, conversation resets.
-
 ## MCP Servers (TODO)
 
 - [ ] Google Sheets (pantry + shopping list)
 - [ ] Gmail
 - [ ] Web search
-- [ ] Spotify (future)
-
-## Future: Pi + Mac Split
-
-For lower latency or cost savings, can split to:
-- Pi: wake word + audio I/O
-- Mac: local Whisper + local TTS + Claude API
-
-See `mac/` directory (not currently active).
+- [ ] Spotify

@@ -1,15 +1,19 @@
+"""
+Homie - Voice-controlled home assistant
+"""
+
 from __future__ import annotations
 
 import io
 import os
+import queue
 import re
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 import wave
-import threading
-import queue
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -22,16 +26,42 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Config
+# =============================================================================
+# CONFIGURATION - All tweakable constants in one place
+# =============================================================================
+
+# --- Environment Variables (from .env) ---
 PORCUPINE_ACCESS_KEY = os.environ.get("PORCUPINE_ACCESS_KEY")
 WAKE_WORD_PATH = os.environ.get("WAKE_WORD_PATH", "yo-home.ppn")
 WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")
-SAMPLE_RATE = 16000
-SILENCE_THRESHOLD = 500
-SILENCE_DURATION = 1.5  # seconds of silence to stop
-MIN_RECORDING_DURATION = 3.0  # seconds before silence detection kicks in
-CONTEXT_TIMEOUT = 60    # seconds
 
+# --- Audio Settings ---
+SAMPLE_RATE = 16000                # Audio sample rate in Hz
+SILENCE_THRESHOLD = 500            # Amplitude below this = silence
+SILENCE_DURATION = 1.5             # Seconds of silence before stopping recording
+MIN_RECORDING_DURATION = 3.0       # Minimum seconds to record before silence detection kicks in
+MAX_RECORDING_DURATION = 30        # Maximum seconds to record
+
+# --- Chime Settings ---
+CHIME_VOLUME = 0.2                 # Volume of acknowledgement chimes (0.0 to 1.0)
+CHIME_FADE_DURATION = 0.02         # Fade in/out duration in seconds
+CHIME_FREQ_LOW = 523.25            # C5 note frequency
+CHIME_FREQ_HIGH = 659.25           # E5 note frequency
+CHIME_TONE1_DURATION = 0.1         # First tone duration
+CHIME_TONE2_DURATION = 0.15        # Second tone duration
+
+# --- Conversation Settings ---
+CONTEXT_TIMEOUT = 60               # Seconds before conversation context resets
+
+# --- Model Settings ---
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+CLAUDE_MAX_TOKENS = 300
+WHISPER_MODEL = "whisper-1"
+WHISPER_LANGUAGE = "en"            # Change to "he" for Hebrew or None for auto-detect
+TTS_MODEL = "tts-1"
+TTS_VOICE = "nova"                 # Options: alloy, echo, fable, onyx, nova, shimmer
+
+# --- System Prompt ---
 SYSTEM_PROMPT = """You are Homie, a friendly home assistant. You help with:
 - Managing shopping lists and pantry inventory (via Google Sheets)
 - Reading and responding to emails (via Gmail)
@@ -49,7 +79,13 @@ If they say "no", "cancel", "never mind", acknowledge and don't execute.
 """
 
 
+# =============================================================================
+# HELPER CLASSES
+# =============================================================================
+
 class ConversationContext:
+    """Manages conversation history with automatic timeout."""
+    
     def __init__(self, timeout_seconds: int = CONTEXT_TIMEOUT):
         self.messages = []
         self.last_interaction = None
@@ -69,65 +105,13 @@ class ConversationContext:
         return self.messages
 
 
-def generate_tone(frequency: float, duration: float, sample_rate: int = 16000, fade: bool = True) -> bytes:
-    """Generate a pleasant tone as WAV bytes."""
-    t = np.linspace(0, duration, int(sample_rate * duration), False)
-    tone = np.sin(2 * np.pi * frequency * t)
-    
-    # Add fade in/out for a softer sound
-    if fade:
-        fade_samples = int(sample_rate * 0.02)  # 20ms fade
-        tone[:fade_samples] *= np.linspace(0, 1, fade_samples)
-        tone[-fade_samples:] *= np.linspace(1, 0, fade_samples)
-    
-    # Convert to 16-bit PCM (0.2 = quieter volume)
-    tone = (tone * 32767 * 0.2).astype(np.int16)
-    
-    buffer = io.BytesIO()
-    with wave.open(buffer, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(tone.tobytes())
-    return buffer.getvalue()
-
-
-def generate_chime(rising: bool = True) -> bytes:
-    """Generate a pleasant two-tone chime."""
-    if rising:
-        # Rising chime: "I'm listening"
-        tone1 = generate_tone(523.25, 0.1)  # C5
-        tone2 = generate_tone(659.25, 0.15)  # E5
-    else:
-        # Falling chime: "Got it, processing"
-        tone1 = generate_tone(659.25, 0.1)  # E5
-        tone2 = generate_tone(523.25, 0.15)  # C5
-    
-    # Combine tones
-    buffer1 = io.BytesIO(tone1)
-    buffer2 = io.BytesIO(tone2)
-    
-    with wave.open(buffer1, 'rb') as w1, wave.open(buffer2, 'rb') as w2:
-        frames1 = w1.readframes(w1.getnframes())
-        frames2 = w2.readframes(w2.getnframes())
-    
-    combined = io.BytesIO()
-    with wave.open(combined, 'wb') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(16000)
-        wf.writeframes(frames1 + frames2)
-    
-    return combined.getvalue()
-
-
 class TTSPipeline:
     """Async TTS pipeline - generates and plays audio without blocking Claude stream."""
     
     def __init__(self, openai_client):
         self.openai = openai_client
-        self.tts_queue = queue.Queue()      # Text waiting for TTS
-        self.playback_queue = queue.Queue() # Audio waiting for playback
+        self.tts_queue = queue.Queue()
+        self.playback_queue = queue.Queue()
         self.tts_thread = None
         self.playback_thread = None
         self.running = False
@@ -150,10 +134,10 @@ class TTSPipeline:
     
     def finish_and_wait(self):
         """Signal no more text coming, wait for all audio to finish playing."""
-        self.tts_queue.put(None)  # Sentinel
-        self.tts_queue.join()     # Wait for TTS to finish
-        self.playback_queue.put(None)  # Sentinel
-        self.playback_queue.join()     # Wait for playback to finish
+        self.tts_queue.put(None)
+        self.tts_queue.join()
+        self.playback_queue.put(None)
+        self.playback_queue.join()
     
     def _tts_worker(self):
         """Worker thread: pull text from queue, generate audio, push to playback."""
@@ -163,7 +147,7 @@ class TTSPipeline:
             except queue.Empty:
                 continue
             
-            if text is None:  # Sentinel
+            if text is None:
                 self.tts_queue.task_done()
                 break
             
@@ -172,13 +156,11 @@ class TTSPipeline:
                 print(f"   📤 TTS: \"{text[:50]}...\"" if len(text) > 50 else f"   📤 TTS: \"{text}\"")
                 
                 if os.uname().sysname == "Darwin":
-                    # macOS - use say command, pass text directly to playback
                     self.playback_queue.put(("say", text))
                 else:
-                    # Linux - use OpenAI TTS
                     response = self.openai.audio.speech.create(
-                        model="tts-1",
-                        voice="nova",
+                        model=TTS_MODEL,
+                        voice=TTS_VOICE,
                         input=text,
                         response_format="mp3"
                     )
@@ -198,7 +180,7 @@ class TTSPipeline:
             except queue.Empty:
                 continue
             
-            if item is None:  # Sentinel
+            if item is None:
                 self.playback_queue.task_done()
                 break
             
@@ -223,7 +205,76 @@ class TTSPipeline:
                 self.playback_queue.task_done()
 
 
+# =============================================================================
+# AUDIO UTILITIES
+# =============================================================================
+
+def generate_tone(frequency: float, duration: float) -> bytes:
+    """Generate a pleasant tone as WAV bytes."""
+    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
+    tone = np.sin(2 * np.pi * frequency * t)
+    
+    # Add fade in/out for a softer sound
+    fade_samples = int(SAMPLE_RATE * CHIME_FADE_DURATION)
+    tone[:fade_samples] *= np.linspace(0, 1, fade_samples)
+    tone[-fade_samples:] *= np.linspace(1, 0, fade_samples)
+    
+    # Convert to 16-bit PCM with configured volume
+    tone = (tone * 32767 * CHIME_VOLUME).astype(np.int16)
+    
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(tone.tobytes())
+    return buffer.getvalue()
+
+
+def generate_chime(rising: bool = True) -> bytes:
+    """Generate a pleasant two-tone chime."""
+    if rising:
+        tone1 = generate_tone(CHIME_FREQ_LOW, CHIME_TONE1_DURATION)
+        tone2 = generate_tone(CHIME_FREQ_HIGH, CHIME_TONE2_DURATION)
+    else:
+        tone1 = generate_tone(CHIME_FREQ_HIGH, CHIME_TONE1_DURATION)
+        tone2 = generate_tone(CHIME_FREQ_LOW, CHIME_TONE2_DURATION)
+    
+    buffer1 = io.BytesIO(tone1)
+    buffer2 = io.BytesIO(tone2)
+    
+    with wave.open(buffer1, 'rb') as w1, wave.open(buffer2, 'rb') as w2:
+        frames1 = w1.readframes(w1.getnframes())
+        frames2 = w2.readframes(w2.getnframes())
+    
+    combined = io.BytesIO()
+    with wave.open(combined, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(frames1 + frames2)
+    
+    return combined.getvalue()
+
+
+def pcm_to_wav(pcm: list) -> bytes:
+    """Convert PCM samples to WAV bytes."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(struct.pack(f'{len(pcm)}h', *pcm))
+    return buffer.getvalue()
+
+
+# =============================================================================
+# MAIN APPLICATION
+# =============================================================================
+
 class Homie:
+    """Main voice assistant class."""
+    
     def __init__(self):
         self.porcupine = None
         self.recorder = None
@@ -237,21 +288,19 @@ class Homie:
         self.processing_chime = generate_chime(rising=False)
 
     def start(self):
+        """Start the voice assistant."""
         print("Starting Homie...")
 
-        # Initialize Porcupine
         self.porcupine = pvporcupine.create(
             access_key=PORCUPINE_ACCESS_KEY,
             keyword_paths=[WAKE_WORD_PATH]
         )
 
-        # Initialize recorder
         self.recorder = PvRecorder(
             device_index=-1,
             frame_length=self.porcupine.frame_length
         )
         
-        # Start TTS pipeline
         self.tts_pipeline.start()
 
         print(f"Audio device: {self.recorder.selected_device}")
@@ -282,7 +331,6 @@ class Homie:
         """Record speech, transcribe, process, respond."""
         audio = self.record_until_silence()
         
-        # Play "got it" chime after recording stops
         self.play_chime(self.processing_chime)
         
         if not audio:
@@ -307,12 +355,12 @@ class Homie:
         frames_per_second = SAMPLE_RATE // self.porcupine.frame_length
         silence_threshold_frames = int(SILENCE_DURATION * frames_per_second)
         min_frames = int(MIN_RECORDING_DURATION * frames_per_second)
-        max_duration_frames = 30 * frames_per_second
+        max_frames = int(MAX_RECORDING_DURATION * frames_per_second)
 
         print("   Recording...")
 
         frame_count = 0
-        for _ in range(max_duration_frames):
+        for _ in range(max_frames):
             pcm = self.recorder.read()
             frames.extend(pcm)
             frame_count += 1
@@ -324,24 +372,13 @@ class Homie:
             else:
                 silence_frames = 0
 
-            # Only check for silence after minimum recording time
             if frame_count >= min_frames and silence_frames >= silence_threshold_frames:
                 break
 
         if len(frames) < SAMPLE_RATE // 2:
             return None
 
-        return self.pcm_to_wav(frames)
-
-    def pcm_to_wav(self, pcm: list) -> bytes:
-        """Convert PCM samples to WAV bytes."""
-        buffer = io.BytesIO()
-        with wave.open(buffer, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(struct.pack(f'{len(pcm)}h', *pcm))
-        return buffer.getvalue()
+        return pcm_to_wav(frames)
 
     def transcribe(self, audio_bytes: bytes) -> str | None:
         """Transcribe audio using OpenAI Whisper API."""
@@ -350,9 +387,9 @@ class Homie:
             audio_file.name = "audio.wav"
 
             response = self.openai.audio.transcriptions.create(
-                model="whisper-1",
+                model=WHISPER_MODEL,
                 file=audio_file,
-                language="en"
+                language=WHISPER_LANGUAGE
             )
             return response.text.strip()
         except Exception as e:
@@ -370,8 +407,8 @@ class Homie:
 
         try:
             with self.anthropic.messages.stream(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=300,
+                model=CLAUDE_MODEL,
+                max_tokens=CLAUDE_MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=self.context.get_messages()
             ) as stream:
@@ -395,13 +432,12 @@ class Homie:
 
                         if sentence:
                             print(f"\n   🎯 Sentence complete: \"{sentence}\"")
-                            self.tts_pipeline.submit(sentence)  # Non-blocking!
+                            self.tts_pipeline.submit(sentence)
 
             if buffer.strip():
                 print(f"\n   🎯 Final chunk: \"{buffer.strip()}\"")
-                self.tts_pipeline.submit(buffer.strip())  # Non-blocking!
+                self.tts_pipeline.submit(buffer.strip())
 
-            # Wait for all audio to finish playing
             self.tts_pipeline.finish_and_wait()
             
             # Restart pipeline for next command
@@ -414,37 +450,26 @@ class Homie:
 
         except Exception as e:
             print(f"Claude error: {e}")
-            self.speak("Sorry, I couldn't process that.")
+            self.speak_error("Sorry, I couldn't process that.")
             return "Sorry, I couldn't process that."
 
-    def speak(self, text: str):
-        """Convert text to speech using OpenAI TTS."""
+    def speak_error(self, text: str):
+        """Speak an error message (blocking, used for error handling)."""
         try:
-            t0 = time.time()
-            print(f"   📤 TTS: \"{text[:50]}...\"" if len(text) > 50 else f"   📤 TTS: \"{text}\"")
-
             if os.uname().sysname == "Darwin":
-                # macOS - use built-in say for speed
                 subprocess.run(["say", "-v", "Samantha", text], check=True)
             else:
-                # Linux - use OpenAI TTS for better quality
                 response = self.openai.audio.speech.create(
-                    model="tts-1",
-                    voice="nova",
+                    model=TTS_MODEL,
+                    voice=TTS_VOICE,
                     input=text,
                     response_format="mp3"
                 )
-
                 with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                     f.write(response.content)
                     temp_path = f.name
-
                 subprocess.run(["mpg123", "-q", temp_path], check=True)
                 os.unlink(temp_path)
-
-            t1 = time.time()
-            print(f"   ⏹️  Done: {(t1-t0)*1000:.0f}ms")
-
         except Exception as e:
             print(f"TTS error: {e}")
 
@@ -465,6 +490,7 @@ class Homie:
             print(f"Chime error: {e}")
 
     def cleanup(self):
+        """Clean up resources."""
         if self.tts_pipeline:
             self.tts_pipeline.stop()
         if self.recorder:
@@ -474,7 +500,12 @@ class Homie:
             self.porcupine.delete()
 
 
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
+
 def main():
+    """Main entry point."""
     if not PORCUPINE_ACCESS_KEY:
         print("Error: PORCUPINE_ACCESS_KEY not set")
         print("Get your key at https://console.picovoice.ai/")
