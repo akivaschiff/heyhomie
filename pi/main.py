@@ -79,8 +79,8 @@ def generate_tone(frequency: float, duration: float, sample_rate: int = 16000, f
         tone[:fade_samples] *= np.linspace(0, 1, fade_samples)
         tone[-fade_samples:] *= np.linspace(1, 0, fade_samples)
     
-    # Convert to 16-bit PCM
-    tone = (tone * 32767 * 0.5).astype(np.int16)
+    # Convert to 16-bit PCM (0.2 = quieter volume)
+    tone = (tone * 32767 * 0.2).astype(np.int16)
     
     buffer = io.BytesIO()
     with wave.open(buffer, 'wb') as wf:
