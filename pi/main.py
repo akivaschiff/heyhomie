@@ -5,11 +5,13 @@ Homie - Voice-controlled home assistant
 from __future__ import annotations
 
 import io
+import json
 import os
 import queue
 import re
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -18,8 +20,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import pvporcupine
-from pvrecorder import PvRecorder
 from openai import OpenAI
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -30,10 +30,18 @@ load_dotenv()
 # CONFIGURATION - All tweakable constants in one place
 # =============================================================================
 
+# --- Interaction Mode ---
+INTERACTION_MODE = os.environ.get("INTERACTION_MODE", "audio")  # "audio" or "text"
+
 # --- Environment Variables (from .env) ---
 PORCUPINE_ACCESS_KEY = os.environ.get("PORCUPINE_ACCESS_KEY")
 WAKE_WORD_PATH = os.environ.get("WAKE_WORD_PATH", "yo-home.ppn")
 WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")
+
+# Conditional imports for audio mode only
+if INTERACTION_MODE == "audio":
+    import pvporcupine
+    from pvrecorder import PvRecorder
 
 # --- Audio Settings ---
 SAMPLE_RATE = 16000                # Audio sample rate in Hz
@@ -61,6 +69,14 @@ WHISPER_LANGUAGE = "en"            # Change to "he" for Hebrew or None for auto-
 TTS_MODEL = "tts-1"
 TTS_VOICE = "nova"                 # Options: alloy, echo, fable, onyx, nova, shimmer
 
+# --- MCP Settings ---
+ENABLE_CALENDAR_MCP = os.environ.get("ENABLE_CALENDAR_MCP", "true").lower() == "true"
+DEFAULT_CALENDAR_ID = os.environ.get("DEFAULT_CALENDAR_ID", "primary")
+GOOGLE_SERVICE_ACCOUNT_PATH = os.environ.get(
+    "GOOGLE_SERVICE_ACCOUNT_PATH",
+    str(Path(__file__).parent.parent / "secrets" / "google-calendar.json")
+)
+
 # --- System Prompt ---
 SYSTEM_PROMPT = """You are Homie, a friendly home assistant. You help with:
 - Managing shopping lists and pantry inventory (via Google Sheets)
@@ -82,6 +98,189 @@ If they say "no", "cancel", "never mind", acknowledge and don't execute.
 # =============================================================================
 # HELPER CLASSES
 # =============================================================================
+
+class MCPClient:
+    """Client for communicating with MCP servers via stdio."""
+
+    def __init__(self, server_command: list[str], env: dict = None):
+        """Initialize MCP client with server command.
+
+        Args:
+            server_command: Command to start the MCP server (e.g., ["node", "build/index.js"])
+            env: Environment variables to pass to the server
+        """
+        self.server_command = server_command
+        self.env = env or {}
+        self.process = None
+        self.tools = []
+        self.message_id = 0
+
+    def start(self):
+        """Start the MCP server process."""
+        env = os.environ.copy()
+        env.update(self.env)
+
+        try:
+            self.process = subprocess.Popen(
+                self.server_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                bufsize=1
+            )
+
+            # Initialize and list tools
+            self._initialize()
+            self._list_tools()
+        except Exception:
+            # Clean up if initialization fails
+            if self.process:
+                self.process.kill()
+                self.process = None
+            raise
+
+    def _initialize(self):
+        """Send initialize request to the MCP server."""
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "homie",
+                    "version": "1.0.0"
+                }
+            }
+        }
+        self._send_request(init_request)
+        response = self._read_response()
+        if "error" in response:
+            raise RuntimeError(f"MCP initialize failed: {response['error']}")
+
+        # Send initialized notification
+        initialized_notif = {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }
+        self._send_request(initialized_notif)
+
+    def _list_tools(self):
+        """Fetch available tools from the MCP server."""
+        list_request = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "tools/list",
+            "params": {}
+        }
+        self._send_request(list_request)
+        response = self._read_response()
+
+        if "error" in response:
+            raise RuntimeError(f"MCP tools/list failed: {response['error']}")
+
+        self.tools = response.get("result", {}).get("tools", [])
+
+    def call_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Call a tool on the MCP server.
+
+        Args:
+            tool_name: Name of the tool to call
+            arguments: Arguments to pass to the tool
+
+        Returns:
+            Tool result as a dictionary
+        """
+        call_request = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments
+            }
+        }
+        self._send_request(call_request)
+        response = self._read_response()
+
+        if "error" in response:
+            return {"error": response["error"]}
+
+        return response.get("result", {})
+
+    def get_anthropic_tools(self) -> list[dict]:
+        """Convert MCP tools to Anthropic tool format."""
+        anthropic_tools = []
+        for tool in self.tools:
+            # Convert MCP tool schema to Anthropic format
+            input_schema = tool.get("inputSchema", {"type": "object", "properties": {}})
+            anthropic_tools.append({
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "input_schema": input_schema
+            })
+        return anthropic_tools
+
+    def _next_id(self):
+        """Generate next message ID."""
+        self.message_id += 1
+        return self.message_id
+
+    def _send_request(self, request: dict):
+        """Send a JSON-RPC request to the server."""
+        if not self.process or not self.process.stdin:
+            raise RuntimeError("MCP server not started")
+
+        message = json.dumps(request) + "\n"
+        self.process.stdin.write(message)
+        self.process.stdin.flush()
+
+    def _read_response(self, timeout: float = 30.0) -> dict:
+        """Read a JSON-RPC response from the server with timeout."""
+        if not self.process or not self.process.stdout:
+            raise RuntimeError("MCP server not started")
+
+        import select
+        ready, _, _ = select.select([self.process.stdout], [], [], timeout)
+
+        if not ready:
+            raise TimeoutError(f"MCP server did not respond within {timeout}s")
+
+        line = self.process.stdout.readline()
+        if not line:
+            if self.process.poll() is not None:
+                raise RuntimeError(f"MCP server terminated (exit code: {self.process.returncode})")
+            raise RuntimeError("MCP server closed connection")
+
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON from MCP: {line[:100]}") from e
+
+    def stop(self):
+        """Stop the MCP server process."""
+        if self.process:
+            try:
+                self.process.stdin.close()
+                self.process.stdout.close()
+                self.process.stderr.close()
+            except Exception:
+                pass  # Already closed
+
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=2)
+            except Exception as e:
+                print(f"Warning: Error stopping MCP server: {e}")
+            finally:
+                self.process = None
+
 
 class ConversationContext:
     """Manages conversation history with automatic timeout."""
@@ -106,10 +305,12 @@ class ConversationContext:
 
 
 class TTSPipeline:
-    """Async TTS pipeline - generates and plays audio without blocking Claude stream."""
-    
-    def __init__(self, openai_client):
+    """Async TTS pipeline - generates and plays audio without blocking Claude stream.
+    In text mode, this just prints to stdout instead of generating audio."""
+
+    def __init__(self, openai_client, mode="audio"):
         self.openai = openai_client
+        self.mode = mode
         self.tts_queue = queue.Queue()
         self.playback_queue = queue.Queue()
         self.tts_thread = None
@@ -146,15 +347,22 @@ class TTSPipeline:
                 text = self.tts_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            
+
             if text is None:
                 self.tts_queue.task_done()
                 break
-            
+
             try:
                 t0 = time.time()
+
+                if self.mode == "text":
+                    # In text mode, just print the response
+                    print(f"Homie: {text}")
+                    self.tts_queue.task_done()
+                    continue
+
                 print(f"   📤 TTS: \"{text[:50]}...\"" if len(text) > 50 else f"   📤 TTS: \"{text}\"")
-                
+
                 if os.uname().sysname == "Darwin":
                     self.playback_queue.put(("say", text))
                 else:
@@ -179,15 +387,20 @@ class TTSPipeline:
                 item = self.playback_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            
+
             if item is None:
                 self.playback_queue.task_done()
                 break
-            
+
+            # Skip playback in text mode
+            if self.mode == "text":
+                self.playback_queue.task_done()
+                continue
+
             try:
                 audio_type, data = item
                 t0 = time.time()
-                
+
                 if audio_type == "say":
                     subprocess.run(["say", "-v", "Samantha", data], check=True)
                 elif audio_type == "mp3":
@@ -196,7 +409,7 @@ class TTSPipeline:
                         temp_path = f.name
                     subprocess.run(["mpg123", "-q", temp_path], check=True)
                     os.unlink(temp_path)
-                
+
                 t1 = time.time()
                 print(f"   ⏹️  Playback: {(t1-t0)*1000:.0f}ms")
             except Exception as e:
@@ -273,23 +486,69 @@ def pcm_to_wav(pcm: list) -> bytes:
 # =============================================================================
 
 class Homie:
-    """Main voice assistant class."""
-    
-    def __init__(self):
+    """Main voice assistant class. Supports both audio and text modes."""
+
+    def __init__(self, mode="audio"):
+        self.mode = mode
         self.porcupine = None
         self.recorder = None
         self.openai = OpenAI()
         self.anthropic = Anthropic()
         self.context = ConversationContext()
-        self.tts_pipeline = TTSPipeline(self.openai)
-        
-        # Pre-generate chimes
-        self.listening_chime = generate_chime(rising=True)
-        self.processing_chime = generate_chime(rising=False)
+        self.tts_pipeline = TTSPipeline(self.openai, mode=mode)
+        self.mcp_client = None
+
+        # Pre-generate chimes (only used in audio mode)
+        if mode == "audio":
+            self.listening_chime = generate_chime(rising=True)
+            self.processing_chime = generate_chime(rising=False)
+
+        # Initialize MCP client if enabled
+        if ENABLE_CALENDAR_MCP:
+            self._init_calendar_mcp()
+
+    def _init_calendar_mcp(self):
+        """Initialize the calendar MCP server."""
+        try:
+            # Validate service account file exists
+            creds_path = Path(GOOGLE_SERVICE_ACCOUNT_PATH)
+            if not creds_path.exists():
+                print(f"⚠️  Calendar MCP disabled: Credentials not found at {creds_path}")
+                self.mcp_client = None
+                return
+
+            # Validate MCP build exists
+            mcp_path = Path(__file__).parent.parent / "mcps" / "calendar"
+            mcp_binary = mcp_path / "build" / "index.js"
+            if not mcp_binary.exists():
+                print(f"⚠️  Calendar MCP disabled: Build not found. Run: cd {mcp_path} && npm run build")
+                self.mcp_client = None
+                return
+
+            server_command = ["node", str(mcp_binary)]
+            env = {
+                "GOOGLE_SERVICE_ACCOUNT_PATH": GOOGLE_SERVICE_ACCOUNT_PATH,
+                "DEFAULT_CALENDAR_ID": DEFAULT_CALENDAR_ID
+            }
+
+            self.mcp_client = MCPClient(server_command, env)
+            self.mcp_client.start()
+            print(f"✅ Calendar MCP initialized with {len(self.mcp_client.tools)} tools")
+            print(f"   Using calendar: {DEFAULT_CALENDAR_ID}")
+        except Exception as e:
+            print(f"⚠️  Failed to initialize Calendar MCP: {e}")
+            self.mcp_client = None
 
     def start(self):
-        """Start the voice assistant."""
-        print("Starting Homie...")
+        """Start the assistant in either audio or text mode."""
+        if self.mode == "audio":
+            self._start_audio_mode()
+        else:
+            self._start_text_mode()
+
+    def _start_audio_mode(self):
+        """Start the voice assistant in audio mode."""
+        print("Starting Homie in AUDIO mode...")
 
         self.porcupine = pvporcupine.create(
             access_key=PORCUPINE_ACCESS_KEY,
@@ -300,7 +559,7 @@ class Homie:
             device_index=-1,
             frame_length=self.porcupine.frame_length
         )
-        
+
         self.tts_pipeline.start()
 
         print(f"Audio device: {self.recorder.selected_device}")
@@ -327,12 +586,38 @@ class Homie:
         finally:
             self.cleanup()
 
+    def _start_text_mode(self):
+        """Start the assistant in text mode (stdin/stdout)."""
+        print("Starting Homie in TEXT mode...")
+        print("Type your messages and press Enter. Use Ctrl+C to exit.\n")
+
+        self.tts_pipeline.start()
+
+        try:
+            while True:
+                try:
+                    user_input = input("You: ").strip()
+                    if not user_input:
+                        continue
+
+                    print("🤖 Thinking...")
+                    full_response = self.process_and_speak_streaming(user_input)
+                    print()  # Add a blank line for readability
+
+                except EOFError:
+                    break
+
+        except KeyboardInterrupt:
+            print("\nStopping...")
+        finally:
+            self.cleanup()
+
     def handle_command(self):
-        """Record speech, transcribe, process, respond."""
+        """Record speech, transcribe, process, respond (audio mode only)."""
         audio = self.record_until_silence()
-        
+
         self.play_chime(self.processing_chime)
-        
+
         if not audio:
             print("No speech detected")
             return
@@ -399,59 +684,175 @@ class Homie:
     def process_and_speak_streaming(self, user_message: str) -> str:
         """Stream Claude response and speak sentences as they complete."""
         self.context.add_message("user", user_message)
-        full_response = ""
-        buffer = ""
-        sentence_endings = re.compile(r'([.!?])\s+')
         start_time = time.time()
-        first_token_time = None
+
+        # Prepare tools if MCP is available
+        tools = None
+        if self.mcp_client:
+            tools = self.mcp_client.get_anthropic_tools()
 
         try:
-            with self.anthropic.messages.stream(
+            # First API call to Claude
+            response = self.anthropic.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=CLAUDE_MAX_TOKENS,
                 system=SYSTEM_PROMPT,
-                messages=self.context.get_messages()
-            ) as stream:
-                for text in stream.text_stream:
-                    if first_token_time is None:
-                        first_token_time = time.time()
-                        print(f"   ⚡ First token: {(first_token_time - start_time)*1000:.0f}ms")
+                messages=self.context.get_messages(),
+                tools=tools if tools else None
+            )
 
-                    buffer += text
-                    full_response += text
-                    print(f"   📥 +\"{text}\"", end="", flush=True)
+            # Handle tool use
+            if response.stop_reason == "tool_use":
+                return self._handle_tool_use(response, start_time)
 
-                    while True:
-                        match = sentence_endings.search(buffer)
-                        if not match:
-                            break
+            # Handle text response
+            full_response = ""
+            for block in response.content:
+                if block.type == "text":
+                    full_response += block.text
 
-                        end_pos = match.end()
-                        sentence = buffer[:end_pos].strip()
-                        buffer = buffer[end_pos:]
-
-                        if sentence:
-                            print(f"\n   🎯 Sentence complete: \"{sentence}\"")
-                            self.tts_pipeline.submit(sentence)
-
-            if buffer.strip():
-                print(f"\n   🎯 Final chunk: \"{buffer.strip()}\"")
-                self.tts_pipeline.submit(buffer.strip())
-
-            self.tts_pipeline.finish_and_wait()
-            
-            # Restart pipeline for next command
-            self.tts_pipeline = TTSPipeline(self.openai)
-            self.tts_pipeline.start()
+            # Speak the response
+            self._speak_text(full_response)
 
             self.context.add_message("assistant", full_response)
-            print(f"   ✅ Total time: {(time.time() - start_time)*1000:.0f}ms")
+            if self.mode == "audio":
+                print(f"   ✅ Total time: {(time.time() - start_time)*1000:.0f}ms")
             return full_response
 
         except Exception as e:
             print(f"Claude error: {e}")
-            self.speak_error("Sorry, I couldn't process that.")
+            if self.mode == "audio":
+                self.speak_error("Sorry, I couldn't process that.")
+            else:
+                print("Homie: Sorry, I couldn't process that.")
             return "Sorry, I couldn't process that."
+
+    def _handle_tool_use(self, response, start_time) -> str:
+        """Handle tool use in Claude's response."""
+        if not self.mcp_client:
+            return "Sorry, I don't have access to those tools right now."
+
+        tool_results = []
+        text_parts = []
+
+        # Process all content blocks
+        for block in response.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                tool_name = block.name
+                tool_input = block.input
+                tool_id = block.id
+
+                if self.mode == "audio":
+                    print(f"   🔧 Calling tool: {tool_name}")
+                else:
+                    print(f"🔧 Calling tool: {tool_name} with {tool_input}")
+
+                # Call the MCP tool
+                result = self.mcp_client.call_tool(tool_name, tool_input)
+
+                # Extract text content from MCP response
+                content_text = ""
+                if "content" in result:
+                    for content_item in result["content"]:
+                        if content_item.get("type") == "text":
+                            content_text += content_item.get("text", "")
+
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": content_text or json.dumps(result)
+                })
+
+        # Add assistant's response to context (with tool use blocks)
+        assistant_content = []
+        for block in response.content:
+            if block.type == "text":
+                assistant_content.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input
+                })
+
+        self.context.messages.append({
+            "role": "assistant",
+            "content": assistant_content
+        })
+
+        # Add tool results to context
+        self.context.messages.append({
+            "role": "user",
+            "content": tool_results
+        })
+
+        # Make follow-up call to get Claude's response with tool results
+        follow_up = self.anthropic.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=CLAUDE_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=self.context.messages,
+            tools=self.mcp_client.get_anthropic_tools() if self.mcp_client else None
+        )
+
+        full_response = ""
+        for block in follow_up.content:
+            if block.type == "text":
+                full_response += block.text
+
+        # Speak the final response
+        self._speak_text(full_response)
+
+        # Update context with final response
+        self.context.messages.append({
+            "role": "assistant",
+            "content": [{"type": "text", "text": full_response}]
+        })
+
+        if self.mode == "audio":
+            print(f"   ✅ Total time: {(time.time() - start_time)*1000:.0f}ms")
+
+        return full_response
+
+    def _speak_text(self, text: str):
+        """Speak text by splitting into sentences."""
+        if not text:
+            return
+
+        # In text mode, just print the whole response
+        if self.mode == "text":
+            print(f"Homie: {text}")
+            return
+
+        # Audio mode: split into sentences for streaming TTS
+        buffer = text
+        sentence_endings = re.compile(r'([.!?])\s+')
+
+        while True:
+            match = sentence_endings.search(buffer)
+            if not match:
+                break
+
+            end_pos = match.end()
+            sentence = buffer[:end_pos].strip()
+            buffer = buffer[end_pos:]
+
+            if sentence:
+                print(f"   🎯 Sentence: \"{sentence}\"")
+                self.tts_pipeline.submit(sentence)
+
+        if buffer.strip():
+            print(f"   🎯 Final: \"{buffer.strip()}\"")
+            self.tts_pipeline.submit(buffer.strip())
+
+        self.tts_pipeline.finish_and_wait()
+
+        # Restart pipeline for next command
+        self.tts_pipeline = TTSPipeline(self.openai, mode=self.mode)
+        self.tts_pipeline.start()
 
     def speak_error(self, text: str):
         """Speak an error message (blocking, used for error handling)."""
@@ -498,6 +899,8 @@ class Homie:
             self.recorder.delete()
         if self.porcupine:
             self.porcupine.delete()
+        if self.mcp_client:
+            self.mcp_client.stop()
 
 
 # =============================================================================
@@ -506,25 +909,28 @@ class Homie:
 
 def main():
     """Main entry point."""
-    if not PORCUPINE_ACCESS_KEY:
-        print("Error: PORCUPINE_ACCESS_KEY not set")
-        print("Get your key at https://console.picovoice.ai/")
-        return
-
-    if not Path(WAKE_WORD_PATH).exists():
-        print(f"Error: Wake word file not found: {WAKE_WORD_PATH}")
-        print("Train your wake word at https://console.picovoice.ai/")
-        return
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("Error: OPENAI_API_KEY not set")
-        return
-
+    # Check required API keys
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("Error: ANTHROPIC_API_KEY not set")
         return
 
-    homie = Homie()
+    # Audio mode requires additional setup
+    if INTERACTION_MODE == "audio":
+        if not PORCUPINE_ACCESS_KEY:
+            print("Error: PORCUPINE_ACCESS_KEY not set")
+            print("Get your key at https://console.picovoice.ai/")
+            return
+
+        if not Path(WAKE_WORD_PATH).exists():
+            print(f"Error: Wake word file not found: {WAKE_WORD_PATH}")
+            print("Train your wake word at https://console.picovoice.ai/")
+            return
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            print("Error: OPENAI_API_KEY not set (required for Whisper STT)")
+            return
+
+    homie = Homie(mode=INTERACTION_MODE)
     homie.start()
 
 
