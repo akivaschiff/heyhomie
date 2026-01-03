@@ -63,7 +63,7 @@ CONTEXT_TIMEOUT = 60               # Seconds before conversation context resets
 
 # --- Model Settings ---
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-CLAUDE_MAX_TOKENS = 300
+CLAUDE_MAX_TOKENS = 1500
 WHISPER_MODEL = "whisper-1"
 WHISPER_LANGUAGE = "en"            # Change to "he" for Hebrew or None for auto-detect
 TTS_MODEL = "tts-1"
