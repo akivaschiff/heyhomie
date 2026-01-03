@@ -586,11 +586,11 @@ class Homie:
         """Start the voice assistant in audio mode."""
         print("Starting Homie in AUDIO mode...")
 
-        # Set volume to 60% on startup
+        # Set volume to 80% on startup
         try:
             import subprocess
-            subprocess.run(["amixer", "sset", "Master", "60%"], check=True, capture_output=True)
-            print("🔊 Volume set to 60%")
+            subprocess.run(["amixer", "sset", "Master", "80%"], check=True, capture_output=True)
+            print("🔊 Volume set to 80%")
         except Exception as e:
             print(f"⚠️  Could not set volume: {e}")
 
