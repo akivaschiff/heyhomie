@@ -70,6 +70,7 @@ TTS_MODEL = "tts-1"
 TTS_VOICE = "nova"                 # Options: alloy, echo, fable, onyx, nova, shimmer
 
 # --- MCP Settings ---
+ENABLE_SYSTEM_MCP = os.environ.get("ENABLE_SYSTEM_MCP", "true").lower() == "true"
 ENABLE_CALENDAR_MCP = os.environ.get("ENABLE_CALENDAR_MCP", "true").lower() == "true"
 DEFAULT_CALENDAR_ID = os.environ.get("DEFAULT_CALENDAR_ID", "primary")
 GOOGLE_SERVICE_ACCOUNT_PATH = os.environ.get(
@@ -78,11 +79,26 @@ GOOGLE_SERVICE_ACCOUNT_PATH = os.environ.get(
 )
 
 # --- System Prompt ---
-SYSTEM_PROMPT = """You are Homie, a friendly home assistant. You help with:
+def get_system_prompt() -> str:
+    """Generate system prompt with current datetime."""
+    from datetime import datetime
+    import pytz
+
+    # Get current time in user's timezone (adjust as needed)
+    tz = pytz.timezone('America/New_York')  # Change to user's timezone
+    current_time = datetime.now(tz)
+    formatted_time = current_time.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+
+    return f"""You are Homie, a friendly home assistant.
+
+Current date and time: {formatted_time}
+
+You help with:
 - Managing shopping lists and pantry inventory (via Google Sheets)
 - Reading and responding to emails (via Gmail)
 - Managing chores and tasks
 - Answering questions (via web search)
+- Checking and managing calendar events
 
 Keep responses concise and conversational - they will be spoken aloud.
 Aim for 1-2 sentences when possible.
@@ -496,16 +512,38 @@ class Homie:
         self.anthropic = Anthropic()
         self.context = ConversationContext()
         self.tts_pipeline = TTSPipeline(self.openai, mode=mode)
-        self.mcp_client = None
+        self.mcp_clients = []
 
         # Pre-generate chimes (only used in audio mode)
         if mode == "audio":
             self.listening_chime = generate_chime(rising=True)
             self.processing_chime = generate_chime(rising=False)
 
-        # Initialize MCP client if enabled
+        # Initialize MCP clients
+        if ENABLE_SYSTEM_MCP:
+            self._init_system_mcp()
         if ENABLE_CALENDAR_MCP:
             self._init_calendar_mcp()
+
+    def _init_system_mcp(self):
+        """Initialize the system MCP server (datetime, volume control)."""
+        try:
+            # Validate MCP build exists
+            mcp_path = Path(__file__).parent.parent / "mcps" / "system"
+            mcp_binary = mcp_path / "build" / "index.js"
+            if not mcp_binary.exists():
+                print(f"⚠️  System MCP disabled: Build not found. Run: cd {mcp_path} && npm run build")
+                return
+
+            server_command = ["node", str(mcp_binary)]
+            env = {}
+
+            client = MCPClient(server_command, env)
+            client.start()
+            self.mcp_clients.append(client)
+            print(f"✅ System MCP initialized with {len(client.tools)} tools")
+        except Exception as e:
+            print(f"⚠️  Failed to initialize System MCP: {e}")
 
     def _init_calendar_mcp(self):
         """Initialize the calendar MCP server."""
@@ -514,7 +552,6 @@ class Homie:
             creds_path = Path(GOOGLE_SERVICE_ACCOUNT_PATH)
             if not creds_path.exists():
                 print(f"⚠️  Calendar MCP disabled: Credentials not found at {creds_path}")
-                self.mcp_client = None
                 return
 
             # Validate MCP build exists
@@ -522,7 +559,6 @@ class Homie:
             mcp_binary = mcp_path / "build" / "index.js"
             if not mcp_binary.exists():
                 print(f"⚠️  Calendar MCP disabled: Build not found. Run: cd {mcp_path} && npm run build")
-                self.mcp_client = None
                 return
 
             server_command = ["node", str(mcp_binary)]
@@ -531,13 +567,13 @@ class Homie:
                 "DEFAULT_CALENDAR_ID": DEFAULT_CALENDAR_ID
             }
 
-            self.mcp_client = MCPClient(server_command, env)
-            self.mcp_client.start()
-            print(f"✅ Calendar MCP initialized with {len(self.mcp_client.tools)} tools")
+            client = MCPClient(server_command, env)
+            client.start()
+            self.mcp_clients.append(client)
+            print(f"✅ Calendar MCP initialized with {len(client.tools)} tools")
             print(f"   Using calendar: {DEFAULT_CALENDAR_ID}")
         except Exception as e:
             print(f"⚠️  Failed to initialize Calendar MCP: {e}")
-            self.mcp_client = None
 
     def start(self):
         """Start the assistant in either audio or text mode."""
@@ -549,6 +585,14 @@ class Homie:
     def _start_audio_mode(self):
         """Start the voice assistant in audio mode."""
         print("Starting Homie in AUDIO mode...")
+
+        # Set volume to 60% on startup
+        try:
+            import subprocess
+            subprocess.run(["amixer", "sset", "Master", "60%"], check=True, capture_output=True)
+            print("🔊 Volume set to 60%")
+        except Exception as e:
+            print(f"⚠️  Could not set volume: {e}")
 
         self.porcupine = pvporcupine.create(
             access_key=PORCUPINE_ACCESS_KEY,
@@ -686,17 +730,17 @@ class Homie:
         self.context.add_message("user", user_message)
         start_time = time.time()
 
-        # Prepare tools if MCP is available
-        tools = None
-        if self.mcp_client:
-            tools = self.mcp_client.get_anthropic_tools()
+        # Prepare tools from all MCP clients
+        tools = []
+        for client in self.mcp_clients:
+            tools.extend(client.get_anthropic_tools())
 
         try:
             # First API call to Claude
             response = self.anthropic.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=CLAUDE_MAX_TOKENS,
-                system=SYSTEM_PROMPT,
+                system=get_system_prompt(),
                 messages=self.context.get_messages(),
                 tools=tools if tools else None
             )
@@ -729,7 +773,7 @@ class Homie:
 
     def _handle_tool_use(self, response, start_time) -> str:
         """Handle tool use in Claude's response."""
-        if not self.mcp_client:
+        if not self.mcp_clients:
             return "Sorry, I don't have access to those tools right now."
 
         tool_results = []
@@ -749,8 +793,16 @@ class Homie:
                 else:
                     print(f"🔧 Calling tool: {tool_name} with {tool_input}")
 
-                # Call the MCP tool
-                result = self.mcp_client.call_tool(tool_name, tool_input)
+                # Find the right MCP client that has this tool
+                result = None
+                for client in self.mcp_clients:
+                    tool_names = [t["name"] for t in client.tools]
+                    if tool_name in tool_names:
+                        result = client.call_tool(tool_name, tool_input)
+                        break
+
+                if not result:
+                    result = {"error": f"Tool {tool_name} not found"}
 
                 # Extract text content from MCP response
                 content_text = ""
@@ -790,12 +842,16 @@ class Homie:
         })
 
         # Make follow-up call to get Claude's response with tool results
+        tools = []
+        for client in self.mcp_clients:
+            tools.extend(client.get_anthropic_tools())
+
         follow_up = self.anthropic.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=CLAUDE_MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=get_system_prompt(),
             messages=self.context.messages,
-            tools=self.mcp_client.get_anthropic_tools() if self.mcp_client else None
+            tools=tools if tools else None
         )
 
         full_response = ""
@@ -899,8 +955,8 @@ class Homie:
             self.recorder.delete()
         if self.porcupine:
             self.porcupine.delete()
-        if self.mcp_client:
-            self.mcp_client.stop()
+        for client in self.mcp_clients:
+            client.stop()
 
 
 # =============================================================================
