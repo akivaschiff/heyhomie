@@ -854,6 +854,10 @@ class Homie:
             tools=tools if tools else None
         )
 
+        # If Claude wants to use more tools, recurse
+        if follow_up.stop_reason == "tool_use":
+            return self._handle_tool_use(follow_up, start_time)
+
         full_response = ""
         for block in follow_up.content:
             if block.type == "text":
