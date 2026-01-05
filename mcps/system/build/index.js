@@ -100,6 +100,41 @@ server.tool("get_volume", "Get the current audio output volume level. Use this w
         };
     }
 });
+// Update and reboot
+server.tool("update_and_reboot", "Update Homie from git and reboot the system. Use this when the user asks to update, upgrade, or get the latest version of Homie.", {}, async () => {
+    try {
+        // Determine the homie directory path
+        const homieDir = process.env.HOMIE_DIR || "/home/akiva/heyhomie";
+        // Run git pull
+        const { stdout, stderr } = await execAsync(`cd ${homieDir} && git pull`);
+        // Check if there were any errors
+        const hasErrors = stderr && !stderr.includes("Already up to date");
+        // Schedule reboot in 5 seconds to allow response to be sent
+        execAsync("sudo shutdown -r +0.1").catch(() => { });
+        return {
+            content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        success: true,
+                        message: "Updating and rebooting in 5 seconds",
+                        gitOutput: stdout,
+                        errors: hasErrors ? stderr : null,
+                    }, null, 2),
+                }],
+        };
+    }
+    catch (error) {
+        return {
+            content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error),
+                    }, null, 2),
+                }],
+        };
+    }
+});
 async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);

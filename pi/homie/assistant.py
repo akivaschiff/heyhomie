@@ -291,6 +291,49 @@ class Homie:
         except Exception as e:
             print(f"⚠️  Failed to initialize Shopping MCP: {e}")
 
+    def _check_startup_errors(self):
+        """Check for recent errors in systemd logs and announce them."""
+        try:
+            # Get logs from the last boot
+            result = subprocess.run(
+                ["journalctl", "-u", "homie", "-b", "--priority=err", "--no-pager"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                # Count error lines
+                error_lines = [line for line in result.stdout.strip().split('\n') if line.strip()]
+                error_count = len(error_lines)
+
+                if error_count > 0:
+                    print(f"⚠️  Found {error_count} error(s) in startup logs")
+                    # Announce errors
+                    message = f"I found {error_count} error{'s' if error_count > 1 else ''} in my startup logs. Check journalctl for details."
+
+                    if self.mode == "audio":
+                        try:
+                            if os.uname().sysname == "Darwin":
+                                subprocess.run(["say", "-v", "Samantha", message], check=True)
+                            else:
+                                response = self.openai.audio.speech.create(
+                                    model=self.tts_model,
+                                    voice=self.tts_voice,
+                                    input=message,
+                                    response_format="mp3"
+                                )
+                                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                                    f.write(response.content)
+                                    temp_path = f.name
+                                subprocess.run(["mpg123", "-q", temp_path], check=True)
+                                os.unlink(temp_path)
+                        except Exception as e:
+                            print(f"Could not announce errors: {e}")
+        except Exception as e:
+            # Silently fail if we can't check logs
+            pass
+
     def start(self):
         """Start the assistant in either audio or text mode."""
         if self.mode == "audio":
@@ -308,6 +351,9 @@ class Homie:
             print("🔊 Volume set to 80%")
         except Exception as e:
             print(f"⚠️  Could not set volume: {e}")
+
+        # Check for startup errors
+        self._check_startup_errors()
 
         import pvporcupine
         from pvrecorder import PvRecorder

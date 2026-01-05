@@ -1,0 +1,17 @@
+[Unit]
+Description=Homie Voice Assistant
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=akiva
+WorkingDirectory=/home/akiva/heyhomie/pi
+ExecStart=/home/akiva/heyhomie/pi/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10s
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
