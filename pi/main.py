@@ -54,7 +54,9 @@ TTS_VOICE = "nova"                 # Options: alloy, echo, fable, onyx, nova, sh
 # --- MCP Settings ---
 ENABLE_SYSTEM_MCP = os.environ.get("ENABLE_SYSTEM_MCP", "true").lower() == "true"
 ENABLE_CALENDAR_MCP = os.environ.get("ENABLE_CALENDAR_MCP", "true").lower() == "true"
+ENABLE_SHOPPING_MCP = os.environ.get("ENABLE_SHOPPING_MCP", "true").lower() == "true"
 DEFAULT_CALENDAR_ID = os.environ.get("DEFAULT_CALENDAR_ID", "primary")
+PANTRY_SHEET_ID = os.environ.get("PANTRY_SHEET_ID", "")
 GOOGLE_SERVICE_ACCOUNT_PATH = os.environ.get(
     "GOOGLE_SERVICE_ACCOUNT_PATH",
     str(Path(__file__).parent.parent / "secrets" / "google-calendar.json")
@@ -112,7 +114,9 @@ def main():
         tts_voice=TTS_VOICE,
         enable_system_mcp=ENABLE_SYSTEM_MCP,
         enable_calendar_mcp=ENABLE_CALENDAR_MCP,
+        enable_shopping_mcp=ENABLE_SHOPPING_MCP,
         default_calendar_id=DEFAULT_CALENDAR_ID,
+        pantry_sheet_id=PANTRY_SHEET_ID,
         google_service_account_path=GOOGLE_SERVICE_ACCOUNT_PATH,
         porcupine_access_key=PORCUPINE_ACCESS_KEY,
         wake_word_path=WAKE_WORD_PATH,

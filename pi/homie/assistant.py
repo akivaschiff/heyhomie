@@ -78,7 +78,9 @@ class Homie:
         tts_voice="nova",
         enable_system_mcp=True,
         enable_calendar_mcp=True,
+        enable_shopping_mcp=True,
         default_calendar_id="primary",
+        pantry_sheet_id="",
         google_service_account_path=None,
         porcupine_access_key=None,
         wake_word_path=None,
@@ -151,6 +153,8 @@ class Homie:
             self._init_system_mcp()
         if enable_calendar_mcp:
             self._init_calendar_mcp(default_calendar_id, google_service_account_path)
+        if enable_shopping_mcp:
+            self._init_shopping_mcp(pantry_sheet_id, google_service_account_path)
 
         print(f"✅ Timer tools initialized")
 
@@ -248,6 +252,44 @@ class Homie:
             print(f"   Using calendar: {default_calendar_id}")
         except Exception as e:
             print(f"⚠️  Failed to initialize Calendar MCP: {e}")
+
+    def _init_shopping_mcp(self, pantry_sheet_id, google_service_account_path):
+        """Initialize the shopping/pantry MCP server."""
+        try:
+            # Validate pantry sheet ID
+            if not pantry_sheet_id:
+                print(f"⚠️  Shopping MCP disabled: PANTRY_SHEET_ID not set")
+                return
+
+            # Validate service account file exists
+            if not google_service_account_path:
+                google_service_account_path = str(Path(__file__).parent.parent.parent / "secrets" / "google-calendar.json")
+
+            creds_path = Path(google_service_account_path)
+            if not creds_path.exists():
+                print(f"⚠️  Shopping MCP disabled: Credentials not found at {creds_path}")
+                return
+
+            # Validate MCP build exists
+            mcp_path = Path(__file__).parent.parent.parent / "mcps" / "shopping"
+            mcp_binary = mcp_path / "build" / "index.js"
+            if not mcp_binary.exists():
+                print(f"⚠️  Shopping MCP disabled: Build not found. Run: cd {mcp_path} && npm run build")
+                return
+
+            server_command = ["node", str(mcp_binary)]
+            env = {
+                "GOOGLE_SERVICE_ACCOUNT_PATH": str(creds_path),
+                "PANTRY_SHEET_ID": pantry_sheet_id
+            }
+
+            client = MCPClient(server_command, env)
+            client.start()
+            self.mcp_clients.append(client)
+            print(f"✅ Shopping MCP initialized with {len(client.tools)} tools")
+            print(f"   Using sheet: {pantry_sheet_id}")
+        except Exception as e:
+            print(f"⚠️  Failed to initialize Shopping MCP: {e}")
 
     def start(self):
         """Start the assistant in either audio or text mode."""
