@@ -44,8 +44,11 @@ def speak(text):
             f.write(response.content)
             temp_path = f.name
 
-        # Play the audio
-        subprocess.run(["mpg123", "-q", "-C", temp_path], check=True)
+        # Play the audio (suppress all output)
+        subprocess.run(["mpg123", "-q", "-C", temp_path],
+                      check=True,
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL)
 
         # Clean up
         os.unlink(temp_path)
