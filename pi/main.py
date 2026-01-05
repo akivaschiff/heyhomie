@@ -26,9 +26,10 @@ WAKE_PHRASE = os.environ.get("WAKE_PHRASE", "Yo Home")
 # --- Audio Settings ---
 SAMPLE_RATE = 16000                # Audio sample rate in Hz
 SILENCE_THRESHOLD = 500            # Amplitude below this = silence
-SILENCE_DURATION = 1.5             # Seconds of silence before stopping recording
+SILENCE_DURATION = 1.0             # Seconds of silence before stopping recording
 MIN_RECORDING_DURATION = 3.0       # Minimum seconds to record before silence detection kicks in
 MAX_RECORDING_DURATION = 30        # Maximum seconds to record
+CLOSING_PHRASES = ["bye home", "thanks home", "that's all"]  # Phrases to end recording immediately
 
 # --- Chime Settings ---
 CHIME_VOLUME = 0.2                 # Volume of acknowledgement chimes (0.0 to 1.0)
@@ -93,6 +94,7 @@ def main():
         silence_duration=SILENCE_DURATION,
         min_recording_duration=MIN_RECORDING_DURATION,
         max_recording_duration=MAX_RECORDING_DURATION,
+        closing_phrases=CLOSING_PHRASES,
         chime_volume=CHIME_VOLUME,
         chime_fade_duration=CHIME_FADE_DURATION,
         chime_freq_low=CHIME_FREQ_LOW,

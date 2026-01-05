@@ -58,9 +58,10 @@ class Homie:
         # Configuration parameters
         sample_rate=16000,
         silence_threshold=500,
-        silence_duration=1.5,
+        silence_duration=1.0,
         min_recording_duration=3.0,
         max_recording_duration=30,
+        closing_phrases=None,
         chime_volume=0.2,
         chime_fade_duration=0.02,
         chime_freq_low=523.25,
@@ -92,6 +93,7 @@ class Homie:
         self.silence_duration = silence_duration
         self.min_recording_duration = min_recording_duration
         self.max_recording_duration = max_recording_duration
+        self.closing_phrases = closing_phrases or ["that's all", "done", "over"]
         self.claude_model = claude_model
         self.claude_max_tokens = claude_max_tokens
         self.whisper_model = whisper_model
@@ -338,7 +340,7 @@ class Homie:
         print(f"   [Full response: {full_response}]")
 
     def record_until_silence(self) -> Optional[bytes]:
-        """Record audio until silence is detected."""
+        """Record audio until silence is detected or closing phrase is heard."""
         frames = []
         silence_frames = 0
         frames_per_second = self.sample_rate // self.porcupine.frame_length
@@ -346,7 +348,13 @@ class Homie:
         min_frames = int(self.min_recording_duration * frames_per_second)
         max_frames = int(self.max_recording_duration * frames_per_second)
 
+        # Check for closing phrases every 2 seconds
+        check_interval_frames = int(2.0 * frames_per_second)
+        last_check_frame = 0
+
         print("   Recording...")
+        if self.closing_phrases:
+            print(f"   (Say {', '.join(repr(p) for p in self.closing_phrases)} to finish)")
 
         frame_count = 0
         for _ in range(max_frames):
@@ -361,6 +369,31 @@ class Homie:
             else:
                 silence_frames = 0
 
+            # Check for closing phrases periodically
+            if frame_count >= min_frames and frame_count - last_check_frame >= check_interval_frames:
+                last_check_frame = frame_count
+                # Quick transcription check
+                audio_so_far = pcm_to_wav(frames, self.sample_rate)
+                try:
+                    audio_file = io.BytesIO(audio_so_far)
+                    audio_file.name = "audio.wav"
+                    response = self.openai.audio.transcriptions.create(
+                        model=self.whisper_model,
+                        file=audio_file,
+                        language=self.whisper_language
+                    )
+                    transcript = response.text.strip().lower()
+
+                    # Check if any closing phrase is in the transcript
+                    for phrase in self.closing_phrases:
+                        if phrase.lower() in transcript:
+                            print(f"   Closing phrase '{phrase}' detected!")
+                            return audio_so_far
+                except Exception as e:
+                    # Ignore transcription errors during recording
+                    pass
+
+            # Check for silence
             if frame_count >= min_frames and silence_frames >= silence_threshold_frames:
                 break
 
