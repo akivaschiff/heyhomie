@@ -63,6 +63,7 @@ class Homie:
         max_recording_duration=30,
         closing_phrases=None,
         chime_volume=0.2,
+        alert_chime_volume=0.6,
         chime_fade_duration=0.02,
         chime_freq_low=523.25,
         chime_freq_high=659.25,
@@ -134,6 +135,16 @@ class Homie:
                 fade_duration=chime_fade_duration,
                 volume=chime_volume
             )
+            self.alert_chime = generate_chime(
+                rising=True,
+                freq_low=chime_freq_low,
+                freq_high=chime_freq_high,
+                tone1_duration=chime_tone1_duration,
+                tone2_duration=chime_tone2_duration,
+                sample_rate=sample_rate,
+                fade_duration=chime_fade_duration,
+                volume=alert_chime_volume
+            )
 
         # Initialize MCP clients
         if enable_system_mcp:
@@ -144,12 +155,15 @@ class Homie:
         print(f"✅ Timer tools initialized")
 
     def _on_timer_fire(self, message: str):
-        """Called when a timer fires. Plays chime and speaks the reminder."""
+        """Called when a timer fires. Plays alert chime 3 times and speaks the reminder."""
         print(f"\n⏰ Timer fired: {message}")
 
-        # Play a distinctive chime for timer
-        if self.mode == "audio" and hasattr(self, 'processing_chime'):
-            self.play_chime(self.processing_chime)
+        # Play alert chime 3 times
+        if self.mode == "audio" and hasattr(self, 'alert_chime'):
+            for i in range(3):
+                self.play_chime(self.alert_chime)
+                if i < 2:  # Don't wait after the last chime
+                    time.sleep(0.3)
 
         # Speak the reminder
         reminder_text = f"Reminder: {message}"

@@ -33,6 +33,7 @@ CLOSING_PHRASES = ["bye home", "thanks home", "that's all"]  # Phrases to end re
 
 # --- Chime Settings ---
 CHIME_VOLUME = 0.2                 # Volume of acknowledgement chimes (0.0 to 1.0)
+ALERT_CHIME_VOLUME = 0.6           # Volume of alert/timer chimes (0.0 to 1.0)
 CHIME_FADE_DURATION = 0.02         # Fade in/out duration in seconds
 CHIME_FREQ_LOW = 523.25            # C5 note frequency
 CHIME_FREQ_HIGH = 659.25           # E5 note frequency
@@ -96,6 +97,7 @@ def main():
         max_recording_duration=MAX_RECORDING_DURATION,
         closing_phrases=CLOSING_PHRASES,
         chime_volume=CHIME_VOLUME,
+        alert_chime_volume=ALERT_CHIME_VOLUME,
         chime_fade_duration=CHIME_FADE_DURATION,
         chime_freq_low=CHIME_FREQ_LOW,
         chime_freq_high=CHIME_FREQ_HIGH,
