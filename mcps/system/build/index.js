@@ -10,11 +10,13 @@ const server = new McpServer({
 });
 // Get current date and time
 server.tool("get_datetime", "Get the current date and time. Use this when the user asks about the time, date, or day of the week.", {
-    timezone: z.string().optional().default("America/New_York").describe("Timezone (e.g., 'America/New_York', 'Europe/London')"),
+    timezone: z.string().optional().describe("Timezone (e.g., 'Asia/Jerusalem', 'America/New_York', 'Europe/London'). If not specified, uses system timezone."),
 }, async ({ timezone }) => {
     const now = new Date();
+    // Use system timezone if not specified
+    const effectiveTimezone = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     const options = {
-        timeZone: timezone,
+        timeZone: effectiveTimezone,
         weekday: "long",
         year: "numeric",
         month: "long",
