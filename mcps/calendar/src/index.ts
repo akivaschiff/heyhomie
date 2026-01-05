@@ -3,7 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { google } from "googleapis";
 import { z } from "zod";
 
-const CREDENTIALS_PATH = process.env.GOOGLE_SERVICE_ACCOUNT_PATH || "./service-account.json";
+const CREDENTIALS_PATH = process.env.GOOGLE_SERVICE_ACCOUNT_PATH;
+if (!CREDENTIALS_PATH) throw new Error("GOOGLE_SERVICE_ACCOUNT_PATH environment variable is required");
 const DEFAULT_CALENDAR_ID = process.env.DEFAULT_CALENDAR_ID || "primary";
 
 async function getCalendarClient() {
