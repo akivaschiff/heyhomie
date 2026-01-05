@@ -139,8 +139,8 @@ class Homie:
                 rising=True,
                 freq_low=chime_freq_low,
                 freq_high=chime_freq_high,
-                tone1_duration=chime_tone1_duration,
-                tone2_duration=chime_tone2_duration,
+                tone1_duration=chime_tone1_duration * 2,  # Longer, more drawn out
+                tone2_duration=chime_tone2_duration * 2,  # Longer, more drawn out
                 sample_rate=sample_rate,
                 fade_duration=chime_fade_duration,
                 volume=alert_chime_volume
