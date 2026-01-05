@@ -9,6 +9,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import pytz
 from anthropic import Anthropic
@@ -336,7 +337,7 @@ class Homie:
         full_response = self.process_and_speak_streaming(transcript)
         print(f"   [Full response: {full_response}]")
 
-    def record_until_silence(self) -> bytes | None:
+    def record_until_silence(self) -> Optional[bytes]:
         """Record audio until silence is detected."""
         frames = []
         silence_frames = 0
@@ -368,7 +369,7 @@ class Homie:
 
         return pcm_to_wav(frames, self.sample_rate)
 
-    def transcribe(self, audio_bytes: bytes) -> str | None:
+    def transcribe(self, audio_bytes: bytes) -> Optional[str]:
         """Transcribe audio using OpenAI Whisper API."""
         try:
             audio_file = io.BytesIO(audio_bytes)
