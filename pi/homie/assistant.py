@@ -292,7 +292,7 @@ class Homie:
             print(f"⚠️  Failed to initialize Shopping MCP: {e}")
 
     def _check_startup_errors(self):
-        """Check for recent errors in systemd logs and announce them."""
+        """Check for recent errors in systemd logs and play error chime if found."""
         try:
             # Get logs from the last boot
             result = subprocess.run(
@@ -308,28 +308,15 @@ class Homie:
                 error_count = len(error_lines)
 
                 if error_count > 0:
-                    print(f"⚠️  Found {error_count} error(s) in startup logs")
-                    # Announce errors
-                    message = f"I found {error_count} error{'s' if error_count > 1 else ''} in my startup logs. Check journalctl for details."
-
-                    if self.mode == "audio":
+                    print(f"⚠️  Found {error_count} error(s) in startup logs - check journalctl")
+                    # Play error chime pattern (3 descending tones) instead of TTS
+                    if self.mode == "audio" and hasattr(self, 'processing_chime'):
                         try:
-                            if os.uname().sysname == "Darwin":
-                                subprocess.run(["say", "-v", "Samantha", message], check=True)
-                            else:
-                                response = self.openai.audio.speech.create(
-                                    model=self.tts_model,
-                                    voice=self.tts_voice,
-                                    input=message,
-                                    response_format="mp3"
-                                )
-                                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                                    f.write(response.content)
-                                    temp_path = f.name
-                                subprocess.run(["mpg123", "-q", temp_path], check=True)
-                                os.unlink(temp_path)
+                            for _ in range(3):
+                                self.play_chime(self.processing_chime)  # Descending = something's wrong
+                                time.sleep(0.2)
                         except Exception as e:
-                            print(f"Could not announce errors: {e}")
+                            print(f"Could not play error chime: {e}")
         except Exception as e:
             # Silently fail if we can't check logs
             pass
