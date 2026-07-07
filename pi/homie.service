@@ -6,7 +6,7 @@ After=network.target sound.target
 Type=simple
 User=akiva
 WorkingDirectory=/home/akiva/heyhomie/pi
-ExecStart=/home/akiva/heyhomie/pi/venv/bin/python main.py
+ExecStart=/home/akiva/heyhomie/pi/.venv/bin/python -m homie.app --channel voice
 Restart=on-failure
 RestartSec=10s
 Environment=PYTHONUNBUFFERED=1

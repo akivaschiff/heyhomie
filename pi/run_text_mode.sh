@@ -1,24 +1,11 @@
 #!/bin/bash
-# Run Homie in text mode for local testing
-
-# Ensure we're in the right directory
+# Run Homie's text/Mac harness — the whole assistant from typed input, no audio.
 cd "$(dirname "$0")"
 
-# Activate virtual environment
-if [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
-else
-    echo "❌ Virtual environment not found. Please create it first:"
-    echo "   python3 -m venv venv"
-    echo "   source venv/bin/activate"
-    echo "   pip install -r requirements.txt"
-    exit 1
+if [ ! -d ".venv" ]; then
+    echo "Creating venv…"
+    python3 -m venv .venv
+    .venv/bin/pip install -q -r requirements.txt
 fi
 
-# Set text mode
-export INTERACTION_MODE=text
-
-# Run Homie
-echo "Starting Homie in text mode..."
-echo ""
-python main.py
+exec .venv/bin/python -m homie.app --channel text "$@"

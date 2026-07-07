@@ -1,0 +1,10 @@
+[
+  {
+    "name": "net_ac_XXXX",
+    "room": "Living Room",
+    "ip": "192.168.68.60",
+    "id": 100000000000000,
+    "token": "<64-hex-or-more token from `python midea_cli.py discover`>",
+    "key": "<64-hex key from discover>"
+  }
+]

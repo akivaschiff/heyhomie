@@ -2,6 +2,8 @@
 .env
 secrets/
 venv/
+.venv/
+.homie-state/
 __pycache__/
 *.pyc
 
@@ -12,3 +14,9 @@ __pycache__/
 *.wav
 *.aiff
 node_modules/
+
+# Unrelated local experiments (has its own auth/secrets)
+hahishook/
+
+# Personal editor/assistant settings
+.claude/

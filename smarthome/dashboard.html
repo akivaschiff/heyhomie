@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home Control</title>
+<style>
+  /* palette colors registered so the whole theme cross-fades instead of snapping */
+  @property --bg{syntax:'<color>';inherits:true;initial-value:#0a0c10}
+  @property --bg-2{syntax:'<color>';inherits:true;initial-value:#0e1116}
+  @property --wash-a{syntax:'<color>';inherits:true;initial-value:rgba(84,199,255,.10)}
+  @property --wash-b{syntax:'<color>';inherits:true;initial-value:rgba(240,184,64,.07)}
+  @property --ink{syntax:'<color>';inherits:true;initial-value:#f4f1ea}
+  @property --ink-dim{syntax:'<color>';inherits:true;initial-value:#9aa0ab}
+  @property --ink-faint{syntax:'<color>';inherits:true;initial-value:#5c626d}
+  @property --line{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.07)}
+  @property --line-2{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.12)}
+  @property --surface{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.028)}
+  @property --surface-2{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.05)}
+  @property --gold{syntax:'<color>';inherits:true;initial-value:#f0b840}
+  @property --cool{syntax:'<color>';inherits:true;initial-value:#54c7ff}
+  @property --heat{syntax:'<color>';inherits:true;initial-value:#ff8259}
+  @property --jade{syntax:'<color>';inherits:true;initial-value:#4fd6a0}
+  @property --track{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.10)}
+  @property --grain{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.025)}
+  @property --hero-on{syntax:'<color>';inherits:true;initial-value:#ffffff}
+
+  :root{
+    /* ---- NIGHT (default / baseline) ---- */
+    --bg:#0a0c10;
+    --bg-2:#0e1116;
+    --wash-a:rgba(84,199,255,.10);
+    --wash-b:rgba(240,184,64,.07);
+    --ink:#f4f1ea;
+    --ink-dim:#9aa0ab;
+    --ink-faint:#5c626d;
+    --line:rgba(255,255,255,.07);
+    --line-2:rgba(255,255,255,.12);
+    --surface:rgba(255,255,255,.028);
+    --surface-2:rgba(255,255,255,.05);
+    --gold:#f0b840;      /* light on / warmth */
+    --cool:#54c7ff;      /* cooling */
+    --heat:#ff8259;      /* heating */
+    --jade:#4fd6a0;      /* power / general on */
+    --track:rgba(255,255,255,.10);   /* switch off track */
+    --grain:rgba(255,255,255,.025);
+    --hero-on:#ffffff;
+    --shadow:0 18px 40px -22px rgba(0,0,0,.9);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Roboto, "Noto Sans Hebrew", "Arial Hebrew", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  /* ---- DAY: brighter, airier, cool daylight ---- */
+  html[data-theme="day"]{
+    --bg:#e9eef4;
+    --bg-2:#f7fafd;
+    --wash-a:rgba(56,150,220,.16);
+    --wash-b:rgba(255,196,110,.12);
+    --ink:#17202e;
+    --ink-dim:#53606f;
+    --ink-faint:#8793a1;
+    --line:rgba(20,35,60,.09);
+    --line-2:rgba(20,35,60,.15);
+    --surface:rgba(20,40,70,.028);
+    --surface-2:rgba(20,40,70,.05);
+    --gold:#e0952a;
+    --cool:#1f93d8;
+    --heat:#e8623a;
+    --jade:#1fae7d;
+    --track:rgba(30,45,65,.16);
+    --grain:rgba(20,40,70,.04);
+    --hero-on:#0f1826;
+    --shadow:0 16px 34px -24px rgba(30,50,80,.35);
+  }
+
+  /* ---- SHABBAT: warm golden calm ---- */
+  html[data-theme="shabbat"]{
+    --bg:#150f0a;
+    --bg-2:#1e1610;
+    --wash-a:rgba(255,150,60,.10);
+    --wash-b:rgba(240,184,64,.16);
+    --ink:#f8edd6;
+    --ink-dim:#cdb283;
+    --ink-faint:#8a7355;
+    --line:rgba(255,214,150,.09);
+    --line-2:rgba(255,214,150,.16);
+    --surface:rgba(255,205,140,.03);
+    --surface-2:rgba(255,205,140,.06);
+    --gold:#f5c451;
+    --cool:#5bb8d6;
+    --heat:#ff8259;
+    --jade:#6fce9e;
+    --track:rgba(255,220,160,.14);
+    --grain:rgba(255,220,160,.03);
+    --hero-on:#fff6e6;
+    --shadow:0 18px 40px -22px rgba(0,0,0,.85);
+  }
+
+  html{
+    transition:
+      --bg .9s ease, --bg-2 .9s ease, --wash-a .9s ease, --wash-b .9s ease,
+      --ink .9s ease, --ink-dim .9s ease, --ink-faint .9s ease,
+      --line .9s ease, --line-2 .9s ease, --surface .9s ease, --surface-2 .9s ease,
+      --gold .9s ease, --cool .9s ease, --heat .9s ease, --jade .9s ease,
+      --track .9s ease, --grain .9s ease, --hero-on .9s ease;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--ink); font-family:var(--font);
+    background:var(--bg);
+    background-image:
+      radial-gradient(1200px 700px at 82% -8%, var(--wash-a), transparent 60%),
+      radial-gradient(1000px 620px at 8% 108%, var(--wash-b), transparent 58%),
+      linear-gradient(180deg, var(--bg-2), var(--bg) 40%);
+    background-attachment:fixed;
+    -webkit-font-smoothing:antialiased;
+    padding:clamp(18px,2.4vw,40px) clamp(16px,2.6vw,48px) 64px;
+    min-height:100%;
+  }
+  body::before{ /* fine grain texture */
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.5;
+    background-image:radial-gradient(var(--grain) 1px, transparent 1px);
+    background-size:3px 3px; mix-blend-mode:overlay;
+  }
+  .app{position:relative; z-index:1; max-width:1680px; margin:0 auto}
+
+  /* ---------- header ---------- */
+  header.top{
+    display:flex; align-items:flex-end; justify-content:space-between; gap:24px;
+    padding-bottom:22px; margin-bottom:10px; border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .brand{display:flex; align-items:center; gap:14px}
+  .mark{width:44px;height:44px;border-radius:13px;flex:none;position:relative;
+    background:radial-gradient(120% 120% at 30% 20%, #2a3444, #12161d);
+    border:1px solid var(--line-2); box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.06)}
+  .mark::after{content:"";position:absolute;inset:0;margin:auto;width:14px;height:14px;border-radius:50%;
+    background:var(--jade); box-shadow:0 0 14px 2px rgba(79,214,160,.7); animation:pulse 4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.9;transform:scale(1)}50%{opacity:.55;transform:scale(.82)}}
+  .brand h1{margin:0;font-size:20px;font-weight:650;letter-spacing:.12em;text-transform:uppercase}
+  .brand .tag{margin-top:2px;font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint)}
+  .clockwrap{text-align:right;line-height:1}
+  .clock{font-size:clamp(30px,4vw,48px);font-weight:250;letter-spacing:-.01em;
+    font-variant-numeric:tabular-nums;color:var(--ink)}
+  .clock .sec{font-size:.42em;font-weight:400;color:var(--ink-faint);margin-left:.15em;vertical-align:.25em;letter-spacing:.04em}
+  .date{margin-top:6px;font-size:12.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim)}
+
+  /* ---------- sections ---------- */
+  section{margin-top:clamp(26px,3vw,44px); opacity:0; transform:translateY(14px);
+    animation:rise .7s cubic-bezier(.22,.9,.3,1) forwards}
+  section:nth-of-type(1){animation-delay:.05s}
+  section:nth-of-type(2){animation-delay:.13s}
+  section:nth-of-type(3){animation-delay:.21s}
+  section:nth-of-type(4){animation-delay:.29s}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .shead{display:flex; align-items:baseline; gap:16px; margin:0 2px 16px}
+  .shead .idx{font-family:var(--mono);font-size:12px;color:var(--ink-faint);letter-spacing:.05em}
+  .shead h2{margin:0;font-size:15px;font-weight:640;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+  .shead .count{font-size:11px;font-weight:700;letter-spacing:.1em;padding:3px 9px;border-radius:999px;
+    border:1px solid var(--line-2);color:var(--ink-dim);white-space:nowrap}
+  .shead .count.live{color:#0a0c10;background:var(--jade);border-color:transparent}
+  .shead .count.cooling{color:#0a0c10;background:var(--cool);border-color:transparent}
+  .shead .spacer{flex:1}
+  .shead .refresh{appearance:none;border:1px solid var(--line-2);background:var(--surface);color:var(--ink-dim);
+    font-family:var(--font);font-size:12px;font-weight:600;letter-spacing:.04em;
+    height:34px;padding:0 15px;border-radius:999px;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:7px}
+  .shead .refresh:hover{color:var(--ink);border-color:var(--line-2);background:var(--surface-2)}
+  .shead .refresh svg{width:14px;height:14px}
+  .shead .refresh.spin svg{animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .grid{display:grid;gap:clamp(12px,1.1vw,18px)}
+  .grid.lights{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  .grid.blinds{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+  .grid.clim{grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
+
+  .loading,.empty{color:var(--ink-faint);font-size:13.5px;letter-spacing:.02em;padding:10px 4px;
+    grid-column:1/-1;display:flex;align-items:center;gap:10px}
+  .loading .spinner{width:15px;height:15px;border-radius:50%;border:2px solid var(--line-2);
+    border-top-color:var(--ink-dim);animation:spin .7s linear infinite}
+
+  /* ---------- light tile (whole tile = toggle) ---------- */
+  .light{position:relative;overflow:hidden;text-align:left;cursor:pointer;
+    appearance:none;font-family:var(--font);color:var(--ink);
+    background:var(--surface);border:1px solid var(--line);border-radius:18px;
+    padding:16px 16px 15px;min-height:118px;display:flex;flex-direction:column;
+    box-shadow:var(--shadow);transition:transform .18s ease, border-color .3s, background .3s}
+  .light:active{transform:scale(.975)}
+  .light .halo{position:absolute;top:-40%;right:-30%;width:150px;height:150px;border-radius:50%;
+    background:radial-gradient(circle, rgba(240,184,64,.55), transparent 68%);
+    opacity:0;transition:opacity .4s;pointer-events:none;filter:blur(4px)}
+  .light.on{border-color:rgba(240,184,64,.32);background:linear-gradient(180deg, rgba(240,184,64,.09), rgba(240,184,64,.02))}
+  .light.on .halo{opacity:1}
+  .light .ltop{display:flex;align-items:center;justify-content:space-between;gap:8px;position:relative;z-index:1}
+  .bulb{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--ink-faint);transition:.3s;flex:none}
+  .light.on .bulb{color:var(--gold);border-color:rgba(240,184,64,.4);
+    background:rgba(240,184,64,.14);box-shadow:0 0 22px -2px rgba(240,184,64,.55)}
+  .bulb svg{width:19px;height:19px}
+  .sw{width:44px;height:26px;border-radius:999px;background:var(--track);position:relative;flex:none;transition:background .3s}
+  .light.on .sw{background:var(--gold)}
+  .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;
+    box-shadow:0 2px 5px rgba(0,0,0,.4);transition:transform .28s cubic-bezier(.34,1.56,.5,1)}
+  .light.on .sw::after{transform:translateX(18px)}
+  .light .lname{margin-top:auto;font-size:15.5px;font-weight:600;line-height:1.25;position:relative;z-index:1;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .light .lsub{margin-top:5px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);
+    position:relative;z-index:1;display:flex;align-items:center;gap:6px}
+  .light .lsub .st{color:var(--ink-faint)}
+  .light.on .lsub .st{color:var(--gold)}
+
+  /* ---------- blind tile ---------- */
+  .blind{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;
+    display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow);min-height:118px}
+  .blind .bhead{display:flex;align-items:center;gap:11px}
+  .blind .bico{width:34px;height:34px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--ink-dim)}
+  .blind .bico svg{width:18px;height:18px}
+  .blind .bname{font-size:15px;font-weight:600;line-height:1.2;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .blind .bbtns{display:flex;gap:10px;margin-top:auto}
+  .bbtn{flex:1;height:50px;border-radius:13px;border:1px solid var(--line-2);background:var(--surface-2);
+    color:var(--ink);font-family:var(--font);font-size:13px;font-weight:650;letter-spacing:.05em;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px;transition:.16s}
+  .bbtn svg{width:15px;height:15px}
+  .bbtn.open:active{background:rgba(84,199,255,.16);border-color:var(--cool);color:var(--cool);transform:scale(.97)}
+  .bbtn.close:active{background:rgba(240,184,64,.14);border-color:var(--gold);color:var(--gold);transform:scale(.97)}
+  .bbtn.flash-open{background:rgba(84,199,255,.16);border-color:var(--cool);color:var(--cool)}
+  .bbtn.flash-close{background:rgba(240,184,64,.14);border-color:var(--gold);color:var(--gold)}
+
+  /* ---------- climate tile ---------- */
+  .clim{--ac:var(--ink-dim);position:relative;overflow:hidden;
+    background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px 18px 16px;
+    display:flex;flex-direction:column;gap:15px;box-shadow:var(--shadow);transition:border-color .4s, background .4s}
+  .clim.active{border-color:color-mix(in srgb, var(--ac) 34%, transparent);
+    background:linear-gradient(180deg, color-mix(in srgb,var(--ac) 7%, transparent), transparent 60%)}
+  .clim .aura{position:absolute;top:-60px;right:-60px;width:200px;height:200px;border-radius:50%;
+    background:radial-gradient(circle, var(--ac), transparent 70%);opacity:0;transition:opacity .5s;filter:blur(10px);pointer-events:none}
+  .clim.active .aura{opacity:.16}
+  .clim .chead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:relative;z-index:1}
+  .clim .cname{font-size:16px;font-weight:640;line-height:1.2}
+  .clim .cwhere{margin-top:3px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint)}
+  .clim.active .cwhere{color:var(--ac)}
+  .pw{width:52px;height:30px;border-radius:999px;background:var(--track);position:relative;flex:none;
+    cursor:pointer;border:none;transition:background .3s}
+  .pw.on{background:var(--ac)}
+  .pw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;
+    box-shadow:0 2px 6px rgba(0,0,0,.45);transition:transform .28s cubic-bezier(.34,1.56,.5,1)}
+  .pw.on::after{transform:translateX(22px)}
+
+  .hero{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;position:relative;z-index:1}
+  .hero .now{display:flex;flex-direction:column;gap:2px}
+  .hero .nowlbl{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-faint)}
+  .hero .nowval{font-size:clamp(42px,5vw,58px);font-weight:250;line-height:.9;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;color:var(--ink);transition:color .4s}
+  .hero .nowval .u{font-size:.34em;font-weight:400;color:var(--ink-faint);margin-left:.04em;vertical-align:.42em}
+  .hero .nowval .dec{font-size:.5em;font-weight:300;color:var(--ink-dim)}
+  .clim.active .hero .nowval{color:var(--hero-on)}
+
+  .setblock{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .setlbl{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint)}
+  .stepper{display:flex;align-items:center;gap:6px}
+  .step{width:40px;height:40px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface-2);
+    color:var(--ink);font-size:22px;font-weight:300;line-height:0;cursor:pointer;flex:none;transition:.15s;
+    display:flex;align-items:center;justify-content:center}
+  .step:active{transform:scale(.92);border-color:var(--ac);color:var(--ac)}
+  .setval{min-width:58px;text-align:center;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .setval .u{font-size:.55em;font-weight:400;color:var(--ink-faint);margin-left:1px}
+
+  .cfoot{display:flex;gap:10px;position:relative;z-index:1}
+  .selwrap{flex:1;position:relative}
+  .selwrap .sl{position:absolute;top:8px;left:12px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-faint);pointer-events:none}
+  .clim select{width:100%;appearance:none;font-family:var(--font);color:var(--ink);
+    background:var(--surface-2);border:1px solid var(--line-2);border-radius:13px;
+    padding:24px 30px 9px 12px;font-size:14px;font-weight:600;cursor:pointer;transition:.2s}
+  .clim select:hover{border-color:var(--line-2);background:rgba(255,255,255,.08)}
+  .selwrap::after{content:"";position:absolute;right:13px;top:60%;width:8px;height:8px;
+    border-right:2px solid var(--ink-faint);border-bottom:2px solid var(--ink-faint);
+    transform:translateY(-50%) rotate(45deg);pointer-events:none}
+
+  .clim.off{opacity:.62}
+  .clim.off .hero .nowval{color:var(--ink-dim)}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.12em;
+    text-transform:uppercase;padding:4px 9px;border-radius:999px}
+  .badge.off-b{background:rgba(255,255,255,.06);color:var(--ink-dim);border:1px solid var(--line-2)}
+  .badge.err{background:rgba(255,130,89,.14);color:var(--heat);border:1px solid rgba(255,130,89,.35)}
+
+  .disabled{pointer-events:none;filter:saturate(.5)}
+  .busy{opacity:.55;transition:opacity .2s}
+  [dir="rtl"]{text-align:right}
+
+  /* ---------- theme override control ---------- */
+  .themebtn{appearance:none;margin:0 0 8px auto;display:flex;align-items:center;gap:7px;
+    border:1px solid var(--line-2);background:var(--surface);color:var(--ink-dim);
+    font-family:var(--font);font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    height:28px;padding:0 12px;border-radius:999px;cursor:pointer;transition:.2s}
+  .themebtn:hover{color:var(--ink);background:var(--surface-2)}
+  .themebtn .dot{width:8px;height:8px;border-radius:50%;background:var(--tdot,var(--jade));
+    box-shadow:0 0 10px 1px var(--tdot,var(--jade));transition:background .4s,box-shadow .4s}
+
+  /* ---------- Shabbat greeting ---------- */
+  .greet{display:none;align-items:center;gap:13px;align-self:center;padding-bottom:4px}
+  html[data-theme="shabbat"] .greet{display:flex}
+  .greet .gtext{font-size:clamp(20px,2.4vw,30px);font-weight:600;letter-spacing:.04em;
+    background:linear-gradient(180deg,#ffe9b0,#f0b840 60%,#c98a24);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    text-shadow:0 0 24px rgba(240,184,64,.28)}
+  .candle{position:relative;width:10px;height:34px;flex:none;align-self:flex-end}
+  .candle .stick{position:absolute;bottom:0;left:2px;width:6px;height:22px;border-radius:2px;
+    background:linear-gradient(180deg,#f6ead0,#d9c49a);box-shadow:inset 0 0 2px rgba(0,0,0,.2)}
+  .candle .flame{position:absolute;bottom:20px;left:50%;width:9px;height:15px;margin-left:-4.5px;
+    border-radius:50% 50% 50% 50%/60% 60% 40% 40%;
+    background:radial-gradient(circle at 50% 70%,#fff2c4,#ffb43c 55%,#ff7a1a 85%);
+    box-shadow:0 0 16px 4px rgba(255,160,40,.55);transform-origin:50% 100%;
+    animation:flicker 2.6s ease-in-out infinite}
+  @keyframes flicker{
+    0%,100%{transform:scaleY(1) rotate(-1deg);opacity:.95}
+    25%{transform:scaleY(1.08) rotate(1.5deg);opacity:1}
+    50%{transform:scaleY(.94) rotate(-1.5deg);opacity:.88}
+    75%{transform:scaleY(1.05) rotate(1deg);opacity:1}
+  }
+  html[data-theme="shabbat"] .mark::after{animation-duration:7s}
+  @media (max-width:720px){ .greet{display:none !important} }
+
+  @media (max-width:560px){
+    .grid.lights{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+    .grid.clim{grid-template-columns:1fr}
+    header.top{align-items:center}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>Home Control</h1>
+        <div class="tag">Higoal · Electra · Midea</div>
+      </div>
+    </div>
+    <div class="greet" id="greet" dir="rtl">
+      <span class="candle"><span class="stick"></span><span class="flame"></span></span>
+      <span class="gtext">שבת שלום</span>
+    </div>
+    <div class="clockwrap">
+      <button class="themebtn" id="themebtn" type="button" title="Cycle theme: Auto / Day / Night / Shabbat">
+        <span class="dot"></span><span id="themebtn-label">AUTO</span>
+      </button>
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="date">—</div>
+    </div>
+  </header>
+
+  <section id="lights-sec">
+    <div class="shead">
+      <span class="idx">01</span><h2>Lights</h2>
+      <span class="count" id="lights-count"></span>
+      <span class="spacer"></span>
+      <button class="refresh" onclick="loadHigoal(this)" data-role="higoal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-1.5 5"/><path d="M20 4v5h-5"/></svg>Refresh
+      </button>
+    </div>
+    <div class="grid lights" id="lights"><div class="loading"><span class="spinner"></span>Connecting to Higoal…</div></div>
+  </section>
+
+  <section id="blinds-sec">
+    <div class="shead">
+      <span class="idx">02</span><h2>Blinds</h2>
+      <span class="count" id="blinds-count"></span>
+      <span class="spacer"></span>
+      <button class="refresh" onclick="loadHigoal(this)" data-role="higoal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-1.5 5"/><path d="M20 4v5h-5"/></svg>Refresh
+      </button>
+    </div>
+    <div class="grid blinds" id="blinds"></div>
+  </section>
+
+  <section id="central-sec">
+    <div class="shead">
+      <span class="idx">03</span><h2>Central A/C</h2>
+      <span class="count" id="central-count"></span>
+      <span class="spacer"></span>
+      <button class="refresh" onclick="loadElectra(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-1.5 5"/><path d="M20 4v5h-5"/></svg>Refresh
+      </button>
+    </div>
+    <div class="grid clim" id="central"><div class="loading"><span class="spinner"></span>Reading units…</div></div>
+  </section>
+
+  <section id="splits-sec">
+    <div class="shead">
+      <span class="idx">04</span><h2>Split A/C</h2>
+      <span class="count" id="splits-count"></span>
+      <span class="spacer"></span>
+      <button class="refresh" onclick="loadMidea(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-1.5 5"/><path d="M20 4v5h-5"/></svg>Refresh
+      </button>
+    </div>
+    <div class="grid clim" id="splits"><div class="loading"><span class="spinner"></span>Reading units…</div></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+const ICON = {
+  bulb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.4 1 2.5h6c0-1.1.3-1.8 1-2.5A6 6 0 0 0 12 3Z"/></svg>',
+  blind:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="3" width="16" height="4" rx="1"/><path d="M6 7v11M18 7v11M6 18h12"/><path d="M9 11h6M9 15h6"/></svg>',
+  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 12l6-6 6 6"/></svg>',
+  down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13M18 12l-6 6-6-6"/></svg>'
+};
+
+const RTL_RE = /[֐-׿؀-ۿ]/;
+const isRTL = s => RTL_RE.test(String(s||""));
+const dirAttr = s => isRTL(s) ? ' dir="rtl"' : '';
+const esc = s => String(s??"").replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, body){
+  const opt = body ? {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+function el(html){const t=document.createElement("template");t.innerHTML=html.trim();return t.content.firstChild;}
+function spinBtn(btn){ if(!btn) return; btn.classList.add("spin"); setTimeout(()=>btn.classList.remove("spin"),700); }
+
+// temperature formatting: keep one decimal only when meaningful
+function fmtTemp(v){
+  if(v===null||v===undefined||v==="") return null;
+  const n = Number(v);
+  if(!isFinite(n)) return null;
+  return n;
+}
+function tempHTML(v){
+  const n = fmtTemp(v);
+  if(n===null) return '<span class="nowval">--<span class="u">°</span></span>';
+  const whole = Math.trunc(n);
+  const hasDec = Math.abs(n - whole) >= 0.05;
+  const dec = hasDec ? '<span class="dec">.'+Math.round(Math.abs(n-whole)*10)+'</span>' : '';
+  return '<span class="nowval">'+whole+dec+'<span class="u">°</span></span>';
+}
+function setLabel(t){
+  if(t===null||t===undefined) return '--';
+  const n = Number(t);
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+// which accent a climate unit should wear, by mode
+function acAccent(mode, on){
+  if(!on) return 'var(--ink-dim)';
+  const m = String(mode||"").toUpperCase();
+  if(m.includes("HEAT")) return 'var(--heat)';
+  if(m.includes("COOL")||m==="AUTO"||m.includes("DRY")) return 'var(--cool)';
+  return 'var(--jade)';
+}
+
+/* ================= Higoal — lights + blinds ================= */
+function named(e){ return e.name && !/channel\s*\d/i.test(e.name); }
+
+async function loadHigoal(btn){
+  spinBtn(btn);
+  const lightsWrap = document.getElementById("lights");
+  const blindsWrap = document.getElementById("blinds");
+  let devs;
+  try{ devs = await api("/api/higoal"); }
+  catch(e){ lightsWrap.innerHTML='<div class="empty">Higoal unreachable.</div>'; return; }
+
+  lightsWrap.innerHTML=""; blindsWrap.innerHTML="";
+  let onCount=0, blindCount=0;
+
+  for(const d of devs){
+    const panel = d.device && d.device.trim() ? d.device.trim() : d.id;
+    for(const e of (d.entities||[])){
+      if(!named(e)) continue;
+
+      if(e.type==="shutter"){
+        blindCount++;
+        const c = el(`<div class="blind">
+          <div class="bhead">
+            <div class="bico">${ICON.blind}</div>
+            <div class="bname"${dirAttr(e.name)}>${esc(e.name)}</div>
+          </div>
+          <div class="bbtns">
+            <button class="bbtn open">${ICON.up}Open</button>
+            <button class="bbtn close">${ICON.down}Close</button>
+          </div></div>`);
+        const [op,cl]=c.querySelectorAll("button");
+        op.onclick=()=>{ flash(op,"flash-open"); higoalSet(d.id,e.idx,true); };
+        cl.onclick=()=>{ flash(cl,"flash-close"); higoalSet(d.id,e.idx+1,true); };
+        blindsWrap.appendChild(c);
+        continue;
+      }
+
+      // switch / dimmer -> light tile (whole tile toggles)
+      const on = !!e.on;
+      if(on) onCount++;
+      const c = el(`<button class="light ${on?'on':''}">
+        <span class="halo"></span>
+        <div class="ltop">
+          <div class="bulb">${ICON.bulb}</div>
+          <span class="sw"></span>
+        </div>
+        <div class="lname"${dirAttr(e.name)}>${esc(e.name)}</div>
+        <div class="lsub"><span class="st">${on?'On':'Off'}</span>${e.online===false?' · <span>offline</span>':''}</div>
+      </button>`);
+      c.onclick=()=>{
+        const next=!c.classList.contains("on");
+        c.classList.toggle("on",next);
+        c.querySelector(".lsub .st").textContent = next?'On':'Off';
+        higoalSet(d.id,e.idx,next);          // optimistic: fire, don't await UI
+        scheduleHigoalReconcile();           // reconcile real state after ~3s
+      };
+      lightsWrap.appendChild(c);
+    }
+  }
+
+  if(!lightsWrap.children.length) lightsWrap.innerHTML='<div class="empty">No named lights.</div>';
+  if(!blindsWrap.children.length) blindsWrap.innerHTML='<div class="empty">No named blinds.</div>';
+  setCount("lights-count", onCount ? onCount+" ON" : "ALL OFF", onCount>0);
+  setCount("blinds-count", blindCount+"", false);
+}
+function flash(btn, cls){ btn.classList.add(cls); setTimeout(()=>btn.classList.remove(cls),450); }
+function higoalSet(device,idx,on){ return api("/api/higoal/set",{device,idx,on}); }
+let _higoalTimer=null;
+function scheduleHigoalReconcile(){ clearTimeout(_higoalTimer); _higoalTimer=setTimeout(()=>loadHigoal(), 3000); }
+
+function setCount(id, text, live, cooling){
+  const n=document.getElementById(id); if(!n) return;
+  n.textContent=text;
+  n.classList.toggle("live", !!live);
+  n.classList.toggle("cooling", !!cooling);
+}
+
+/* ================= shared climate card (Electra + Midea) ================= */
+function acCard(m, endpoint, reload, reconcileMs){
+  const offline = !!m.offline;
+  const accent = acAccent(m.mode, m.on);
+  const modeOpts=(m.modes||[]).filter(x=>x!=="STBY")
+     .map(x=>`<option ${x===m.mode?'selected':''}>${esc(x)}</option>`).join("") || '<option>COOL</option>';
+  const fanOpts =(m.fans||[]).map(x=>`<option ${x===m.fan?'selected':''}>${esc(x)}</option>`).join("") || '<option>AUTO</option>';
+
+  const statusBadge = m.error ? `<span class="badge err">Error</span>`
+                    : offline ? `<span class="badge off-b">Offline</span>` : '';
+
+  const c=el(`<div class="clim ${m.on&&!offline?'active':''} ${!m.on?'off':''}" style="--ac:${accent}">
+    <span class="aura"></span>
+    <div class="chead">
+      <div>
+        <div class="cname"${dirAttr(m.name)}>${esc(m.name)}</div>
+        <div class="cwhere">${esc(m.where||'Climate')}</div>
+      </div>
+      ${offline?statusBadge:`<button class="pw ${m.on?'on':''}" aria-label="power"></button>`}
+    </div>
+    <div class="hero">
+      <div class="now">
+        <span class="nowlbl">Room</span>
+        ${tempHTML(m.current)}
+      </div>
+      <div class="setblock">
+        <span class="setlbl">Set to</span>
+        <div class="stepper">
+          <button class="step minus">−</button>
+          <span class="setval">${setLabel(m.target)}<span class="u">°</span></span>
+          <button class="step plus">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="cfoot">
+      <div class="selwrap"><span class="sl">Mode</span><select class="mode">${modeOpts}</select></div>
+      <div class="selwrap"><span class="sl">Fan</span><select class="fan">${fanOpts}</select></div>
+    </div>
+  </div>`);
+
+  if(offline){ c.classList.add("disabled"); return c; }
+
+  const send=(payload)=>{
+    c.classList.add("busy");
+    api(endpoint,{id:m.id,...payload})
+      .catch(()=>{})
+      .finally(()=>{ c.classList.remove("busy"); setTimeout(()=>reload(), reconcileMs); });
+  };
+
+  const applyAccent=(on,mode)=>{
+    const a=acAccent(mode,on);
+    c.style.setProperty("--ac",a);
+    c.classList.toggle("active", on);
+    c.classList.toggle("off", !on);
+  };
+
+  const pw=c.querySelector(".pw");
+  pw.onclick=()=>{
+    const next=!pw.classList.contains("on");
+    pw.classList.toggle("on",next);
+    applyAccent(next, c.querySelector(".mode").value);   // optimistic
+    send({power:next});
+  };
+
+  const setval=c.querySelector(".setval");
+  let t = (m.target!==null && m.target!==undefined) ? Number(m.target) : null;
+  const stepBtns=c.querySelectorAll(".step");
+  stepBtns[0].onclick=()=>{ if(t===null) return; if(t>m.min){ t=Math.round(t-1); setval.innerHTML=setLabel(t)+'<span class="u">°</span>'; send({temp:t}); } };
+  stepBtns[1].onclick=()=>{ if(t===null) return; if(t<m.max){ t=Math.round(t+1); setval.innerHTML=setLabel(t)+'<span class="u">°</span>'; send({temp:t}); } };
+
+  const modeSel=c.querySelector(".mode");
+  modeSel.onchange=(e)=>{ applyAccent(pw.classList.contains("on"), e.target.value); send({mode:e.target.value}); };
+  c.querySelector(".fan").onchange=(e)=>send({fan:e.target.value});
+
+  return c;
+}
+
+/* ================= Electra — central (cloud, optimistic) ================= */
+async function loadElectra(btn){
+  spinBtn(btn);
+  const wrap=document.getElementById("central");
+  if(!wrap.children.length || wrap.querySelector(".loading"))
+    wrap.innerHTML='<div class="loading"><span class="spinner"></span>Reading units…</div>';
+  let devs;
+  try{ devs=await api("/api/electra"); }
+  catch(e){ wrap.innerHTML='<div class="empty">Electra unreachable.</div>'; return; }
+  wrap.innerHTML=""; let coolCount=0;
+  for(const d of devs){
+    const offline = d.on===null || !!d.error;
+    if(!offline && d.on && /COOL|AUTO|DRY/i.test(d.mode||"")) coolCount++;
+    wrap.appendChild(acCard({
+      id:d.id, name:d.name, where:d.kind||'Central', on:!!d.on,
+      current:d.current, target:(d.target!==null&&d.target!==undefined)?Number(d.target):null,
+      min:d.min, max:d.max, mode:d.mode, modes:d.modes, fan:d.fan, fans:d.fans,
+      offline, error:d.error
+    }, "/api/electra/set", loadElectra, 2500));
+  }
+  if(!devs.length) wrap.innerHTML='<div class="empty">No central units.</div>';
+  setCount("central-count", coolCount?coolCount+" COOLING":(devs.length+" UNIT"+(devs.length!==1?"S":"")), false, coolCount>0);
+}
+
+/* ================= Midea — splits (local, fast) ================= */
+async function loadMidea(btn){
+  spinBtn(btn);
+  const wrap=document.getElementById("splits");
+  if(!wrap.children.length || wrap.querySelector(".loading"))
+    wrap.innerHTML='<div class="loading"><span class="spinner"></span>Reading units…</div>';
+  let devs;
+  try{ devs=await api("/api/midea"); }
+  catch(e){ wrap.innerHTML='<div class="empty">Midea unreachable.</div>'; return; }
+  wrap.innerHTML=""; let coolCount=0;
+  for(const d of devs){
+    const offline=!d.online;
+    if(!offline && d.power && /COOL|AUTO|DRY/i.test(d.mode||"")) coolCount++;
+    wrap.appendChild(acCard({
+      id:d.id, name:d.name, where:'Split · '+(d.ip||''), on:!!d.power,
+      current:d.indoor, target:d.target,
+      min:d.min, max:d.max, mode:d.mode, modes:d.modes, fan:d.fan, fans:d.fans,
+      offline
+    }, "/api/midea/set", loadMidea, 1200));
+  }
+  if(!devs.length) wrap.innerHTML='<div class="empty">No split units.</div>';
+  setCount("splits-count", coolCount?coolCount+" COOLING":(devs.length+" ROOM"+(devs.length!==1?"S":"")), false, coolCount>0);
+}
+
+/* ================= theming: time-of-day + Shabbat ================= */
+const GEO = { lat:31.78, lng:35.22 };        // Jerusalem
+const CANDLE_OFFSET_MIN = 40;                // Friday candle-lighting = sunset - 40m
+const NIGHTFALL_OFFSET_MIN = 40;             // Saturday nightfall     = sunset + 40m
+const THEME_CYCLE = ["auto","day","night","shabbat"];
+const TDOT = { day:"#38b6dc", night:"#4fd6a0", shabbat:"#f0b840" };
+
+// NOAA solar-position algorithm -> local sunrise/sunset Date objects, no network.
+function sunTimes(date, lat, lng){
+  const rad=Math.PI/180, deg=180/Math.PI;
+  const y=date.getFullYear(), mo=date.getMonth()+1, d=date.getDate();
+  let yy=y, mm=mo;
+  if(mm<=2){ yy-=1; mm+=12; }
+  const A=Math.floor(yy/100), B=2-A+Math.floor(A/4);
+  const JD=Math.floor(365.25*(yy+4716))+Math.floor(30.6001*(mm+1))+d+B-1524.5;
+  const T=(JD-2451545)/36525;
+  const L0=((280.46646+T*(36000.76983+T*0.0003032))%360+360)%360;
+  const M=357.52911+T*(35999.05029-0.0001537*T);
+  const e=0.016708634-T*(0.000042037+0.0000001267*T);
+  const Mr=rad*M;
+  const C=Math.sin(Mr)*(1.914602-T*(0.004817+0.000014*T))
+         +Math.sin(2*Mr)*(0.019993-0.000101*T)
+         +Math.sin(3*Mr)*0.000289;
+  const trueLong=L0+C;
+  const omega=125.04-1934.136*T;
+  const lambda=trueLong-0.00569-0.00478*Math.sin(rad*omega);
+  const eps0=23+(26+((21.448-T*(46.815+T*(0.00059-T*0.001813))))/60)/60;
+  const eps=eps0+0.00256*Math.cos(rad*omega);
+  const decl=deg*Math.asin(Math.sin(rad*eps)*Math.sin(rad*lambda));
+  const vy=Math.tan(rad*eps/2)**2;
+  const eot=4*deg*(vy*Math.sin(2*rad*L0)-2*e*Math.sin(Mr)
+        +4*e*vy*Math.sin(Mr)*Math.cos(2*rad*L0)
+        -0.5*vy*vy*Math.sin(4*rad*L0)-1.25*e*e*Math.sin(2*Mr));
+  const zenith=90.833;
+  const haCos=Math.cos(rad*zenith)/(Math.cos(rad*lat)*Math.cos(rad*decl))
+            -Math.tan(rad*lat)*Math.tan(rad*decl);
+  const clamp=Math.max(-1,Math.min(1,haCos));
+  const ha=deg*Math.acos(clamp);          // degrees
+  const noonUTCmin=720-4*lng-eot;         // lng positive east
+  const mk=min=>new Date(Date.UTC(y,mo-1,d)+Math.round(min*60000));
+  return {
+    sunrise:mk(noonUTCmin-4*ha),
+    sunset :mk(noonUTCmin+4*ha),
+    polar:Math.abs(haCos)>1
+  };
+}
+
+function autoTheme(now){
+  const {sunrise,sunset}=sunTimes(now, GEO.lat, GEO.lng);
+  const day=now.getDay();                              // 5=Fri, 6=Sat
+  if(day===5 && now.getTime()>=sunset.getTime()-CANDLE_OFFSET_MIN*60000) return "shabbat";
+  if(day===6 && now.getTime()<=sunset.getTime()+NIGHTFALL_OFFSET_MIN*60000) return "shabbat";
+  return (now>=sunrise && now<sunset) ? "day" : "night";
+}
+
+let themeMode = "auto";
+try{ const s=localStorage.getItem("themeMode"); if(THEME_CYCLE.includes(s)) themeMode=s; }catch(_){}
+
+function effectiveTheme(now){ return themeMode==="auto" ? autoTheme(now) : themeMode; }
+
+function applyTheme(){
+  const now=new Date();
+  const eff=effectiveTheme(now);
+  if(document.documentElement.getAttribute("data-theme")!==eff)
+    document.documentElement.setAttribute("data-theme",eff);
+  const btn=document.getElementById("themebtn");
+  document.getElementById("themebtn-label").textContent=
+    themeMode==="auto" ? "AUTO" : themeMode.toUpperCase();
+  btn.style.setProperty("--tdot", TDOT[eff]||TDOT.night);
+  btn.title = themeMode==="auto"
+    ? "Theme: Auto ("+eff+"). Tap to override."
+    : "Theme: "+themeMode+" (manual). Tap to cycle.";
+}
+
+document.getElementById("themebtn").addEventListener("click",()=>{
+  const i=THEME_CYCLE.indexOf(themeMode);
+  themeMode=THEME_CYCLE[(i+1)%THEME_CYCLE.length];
+  try{ localStorage.setItem("themeMode",themeMode); }catch(_){}
+  applyTheme();
+});
+
+(function themeSanity(){
+  const s=sunTimes(new Date(), GEO.lat, GEO.lng);
+  const f=t=>t.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+  console.debug("[theme] Jerusalem sun today — sunrise",f(s.sunrise),
+    "· sunset",f(s.sunset),
+    "· candle-lighting",f(new Date(s.sunset.getTime()-CANDLE_OFFSET_MIN*60000)),
+    "· nightfall",f(new Date(s.sunset.getTime()+NIGHTFALL_OFFSET_MIN*60000)),
+    "· active",effectiveTheme(new Date()));
+})();
+
+/* ================= clock ================= */
+let _lastThemeMin=-1;
+function tick(){
+  const d=new Date();
+  const hh=String(d.getHours()).padStart(2,"0");
+  const mm=String(d.getMinutes()).padStart(2,"0");
+  const ss=String(d.getSeconds()).padStart(2,"0");
+  document.getElementById("clock").innerHTML=`${hh}:${mm}<span class="sec">${ss}</span>`;
+  document.getElementById("date").textContent=
+    d.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});
+  if(d.getMinutes()!==_lastThemeMin){ _lastThemeMin=d.getMinutes(); applyTheme(); }
+}
+applyTheme(); tick(); setInterval(tick,1000);
+
+/* ================= init ================= */
+loadHigoal(); loadElectra(); loadMidea();
+</script>
+</body>
+</html>

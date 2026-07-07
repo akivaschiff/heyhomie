@@ -1,0 +1,15 @@
+# secrets & local state
+.env
+*.env
+!.env.example
+.electra_imei
+midea_devices.json
+
+# vendored HA repo clone (we vendor only higoal_client/) and HA docker volume
+ha-higoal/
+ha-config/
+
+# python
+.venv/
+__pycache__/
+*.pyc
