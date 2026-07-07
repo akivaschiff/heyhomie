@@ -27,8 +27,10 @@ MIC_NAME_HINTS = ("anker", "s330", "usb")
 SAMPLE_RATE = 16000
 SILENCE_THRESHOLD = 500
 SILENCE_DURATION = 1.2
+SPEECH_WAIT = 4.0  # seconds to wait for speech to start before giving up the turn
 MIN_RECORDING = 1.0
 MAX_RECORDING = 30
+AMBIENT_WINDOW_FRAMES = 155  # ~5s rolling noise sample kept while wake-listening
 LISTENING_WINDOW = 8.0  # seconds to keep listening for a follow-up without re-waking
 FOLLOWUP_SPEECH_FRAMES = 3  # ~100ms of sustained sound to open a follow-up (not a click)
 
@@ -111,10 +113,15 @@ class VoiceChannel(Channel):
         self._calibrate()
         print("Listening for wake word…")
 
+        from collections import deque
+
+        ambient = deque(maxlen=AMBIENT_WINDOW_FRAMES)
         try:
             while True:
                 pcm = self.recorder.read()
+                ambient.append(max((abs(s) for s in pcm), default=0))
                 if self.porcupine.process(pcm) >= 0:
+                    self._retune_threshold(ambient)
                     print("🎤 wake")
                     _play_wake_chime()  # audible "I heard you, speak now"
                     self._converse(brain)
@@ -178,11 +185,15 @@ class VoiceChannel(Channel):
                 return
 
     def _record_turn(self, prefill: list = None) -> bytes:
+        """Record one utterance. Waits up to SPEECH_WAIT for the user to start
+        talking (people pause after the chime), then records until SILENCE_DURATION
+        of quiet after their speech."""
         frames = list(prefill or [])  # carry the frame that re-opened the turn
+        heard_speech = bool(prefill)
         fps = SAMPLE_RATE // self.frame_length
         silence_frames = 0
         silence_limit = int(SILENCE_DURATION * fps)
-        min_frames = int(MIN_RECORDING * fps)
+        wait_limit = int(SPEECH_WAIT * fps)
         peak = 0
         second_peaks = []
         current_second_peak = 0
@@ -195,14 +206,20 @@ class VoiceChannel(Channel):
             if (i + 1) % fps == 0:
                 second_peaks.append(current_second_peak)
                 current_second_peak = 0
-            silence_frames = silence_frames + 1 if amplitude < self.silence_threshold else 0
-            if i >= min_frames and silence_frames >= silence_limit:
+            if amplitude >= self.silence_threshold:
+                heard_speech = True
+                silence_frames = 0
+            else:
+                silence_frames += 1
+            if heard_speech and silence_frames >= silence_limit:
+                break
+            if not heard_speech and i >= wait_limit:
                 break
         print(
             f"   (recorded {len(frames) / SAMPLE_RATE:.1f}s, peak {peak}, "
             f"threshold {self.silence_threshold}, per-second {second_peaks})"
         )
-        if len(frames) < SAMPLE_RATE // 2:
+        if not heard_speech or len(frames) < SAMPLE_RATE // 2:
             return b""
         return pcm_to_wav(frames, SAMPLE_RATE)
 
@@ -226,6 +243,16 @@ class VoiceChannel(Channel):
         # peaks >10k, so anything above ~2500 would start rejecting real commands
         self.silence_threshold = min(2500, max(SILENCE_THRESHOLD, int(ambient * 2.5)))
         print(f"   mic calibrated: ambient peak ~{ambient}, silence threshold {self.silence_threshold}")
+
+    def _retune_threshold(self, ambient) -> None:
+        """Set the silence threshold from the noise floor measured just before the
+        wake word — so a vacuum cleaner or music raises it and quiet nights lower
+        it. Speech at kitchen range peaks well above 10k, hence the 9000 cap."""
+        if not ambient:
+            return
+        floor = sorted(ambient)[len(ambient) // 2]
+        self.silence_threshold = min(9000, max(500, int(floor * 2.5)))
+        print(f"   noise floor ~{floor} → silence threshold {self.silence_threshold}")
 
     def _flush_recorder(self) -> None:
         """Clear frames buffered while TTS was playing, so the follow-up window
@@ -269,7 +296,8 @@ def _wake_chime_path() -> str:
     import math
     import wave
 
-    path = "/tmp/homie_wake_chime.wav"
+    volume = int(os.environ.get("HOMIE_CHIME_VOLUME", "3000"))
+    path = f"/tmp/homie_wake_chime_{volume}.wav"
     if not os.path.exists(path):
         rate = 16000
         samples = []
@@ -277,7 +305,7 @@ def _wake_chime_path() -> str:
             n = int(rate * dur)
             for i in range(n):
                 fade = min(1.0, i / (rate * 0.01), (n - i) / (rate * 0.02))
-                samples.append(int(9000 * fade * math.sin(2 * math.pi * freq * i / rate)))
+                samples.append(int(volume * fade * math.sin(2 * math.pi * freq * i / rate)))
         with wave.open(path, "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
@@ -287,7 +315,12 @@ def _wake_chime_path() -> str:
 
 
 def _play_wake_chime() -> None:
-    player = ["afplay"] if _is_macos() else ["aplay", "-q"]
+    if _is_macos():
+        player = ["afplay"]
+    else:
+        from homie.services.voice import alsa_speaker_device
+
+        player = ["aplay", "-q", "-D", alsa_speaker_device()]
     subprocess.run(player + [_wake_chime_path()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -311,6 +344,9 @@ def _select_mic(pv_recorder_cls) -> int:
     except Exception:
         return -1
     for idx, name in enumerate(devices):
-        if any(hint in name.lower() for hint in MIC_NAME_HINTS):
+        lowered = name.lower()
+        if lowered.startswith("monitor of"):  # output loopback, never a real mic
+            continue
+        if any(hint in lowered for hint in MIC_NAME_HINTS):
             return idx
     return -1

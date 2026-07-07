@@ -55,9 +55,32 @@ class DeepgramVoice:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
             f.write(audio)
             path = f.name
-        player = ["afplay", path] if _is_macos() else ["mpg123", "-q", path]
-        return subprocess.Popen(player, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return subprocess.Popen(
+            mp3_player_cmd() + [path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
 
 def _is_macos() -> bool:
     return os.uname().sysname == "Darwin"
+
+
+def alsa_speaker_device() -> str:
+    """The ALSA output for the kitchen speaker (the Anker), not the ALSA default
+    (which on the Pi is the silent headphone jack). Override: HOMIE_SPEAKER_DEVICE."""
+    override = os.environ.get("HOMIE_SPEAKER_DEVICE")
+    if override:
+        return override
+    try:
+        for line in open("/proc/asound/cards"):
+            if "S330" in line or "Anker" in line:
+                card = line.strip().split(" ")[0]
+                return f"plughw:{card},0"
+    except Exception:
+        pass
+    return "default"
+
+
+def mp3_player_cmd() -> list:
+    if _is_macos():
+        return ["afplay"]
+    return ["mpg123", "-q", "-a", alsa_speaker_device()]

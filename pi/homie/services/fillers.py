@@ -74,11 +74,12 @@ class FillerBank:
         (wait on it before speaking the real answer), or None on any failure —
         a filler must never break the turn."""
         try:
-            path = self._ensure(self.next_phrase())
-            import os
+            from homie.services.voice import mp3_player_cmd
 
-            player = ["afplay", str(path)] if os.uname().sysname == "Darwin" else ["mpg123", "-q", str(path)]
-            return subprocess.Popen(player, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            path = self._ensure(self.next_phrase())
+            return subprocess.Popen(
+                mp3_player_cmd() + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
         except Exception:
             return None
 

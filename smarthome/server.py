@@ -1,5 +1,6 @@
 import os
 import sys
+import html
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,11 @@ from flask import Flask, jsonify, request, Response
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+
+LIST_FILE = os.environ.get(
+    "HOMIE_LIST_FILE",
+    os.path.normpath(os.path.join(HERE, "..", "pi", ".homie-state", "list.txt")),
+)
 
 import higoal_cli
 import electra_cli
@@ -46,6 +52,50 @@ electra_cli._load_env()
 def index():
     with open(os.path.join(HERE, "dashboard.html"), encoding="utf-8") as f:
         return Response(f.read(), mimetype="text/html")
+
+
+@app.get("/list")
+def shopping_list():
+    try:
+        with open(LIST_FILE, encoding="utf-8") as f:
+            items = [ln.strip() for ln in f if ln.strip()]
+    except FileNotFoundError:
+        items = []
+    return Response(_list_html(items), mimetype="text/html")
+
+
+def _list_html(items):
+    rows = "".join(f"<li>{html.escape(i)}</li>" for i in items)
+    if items:
+        count = f"{len(items)} item{'s' if len(items) != 1 else ''}"
+        body = f"<p class='meta'>{count}</p><ul>{rows}</ul>"
+    else:
+        body = "<p class='empty'>Nothing on the list yet.</p>"
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<meta http-equiv='refresh' content='30'>"
+        "<title>Shopping List</title><style>"
+        ":root{color-scheme:light dark;"
+        "--bg:#ffffff;--fg:#37352f;--muted:#9b9a97;--line:#ecebe9;--bullet:#d3d1cb;}"
+        "@media (prefers-color-scheme:dark){:root{"
+        "--bg:#191919;--fg:#e9e9e7;--muted:#8f8f8c;--line:#2a2a2a;--bullet:#4a4a48;}}"
+        "*{box-sizing:border-box;}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;"
+        "margin:0;background:var(--bg);color:var(--fg);"
+        "-webkit-font-smoothing:antialiased;line-height:1.5;}"
+        "main{max-width:640px;margin:0 auto;padding:56px 24px 80px;}"
+        "h1{font-size:2rem;font-weight:700;letter-spacing:-0.02em;margin:0 0 2px;}"
+        ".meta{color:var(--muted);font-size:0.9rem;margin:0 0 20px;}"
+        "ul{list-style:none;padding:0;margin:0;}"
+        "li{font-size:1.05rem;padding:11px 0 11px 26px;position:relative;"
+        "border-bottom:1px solid var(--line);}"
+        "li:before{content:'';position:absolute;left:6px;top:1.35em;width:6px;height:6px;"
+        "border-radius:50%;background:var(--bullet);}"
+        ".empty{color:var(--muted);font-size:1.05rem;margin:20px 0 0;}"
+        "</style></head><body><main><h1>Shopping List</h1>"
+        f"{body}</main></body></html>"
+    )
 
 
 @app.get("/api/higoal")
