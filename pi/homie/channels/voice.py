@@ -116,6 +116,7 @@ class VoiceChannel(Channel):
                 pcm = self.recorder.read()
                 if self.porcupine.process(pcm) >= 0:
                     print("🎤 wake")
+                    _play_wake_chime()  # audible "I heard you, speak now"
                     self._converse(brain)
                     print("Listening for wake word…")
         except KeyboardInterrupt:
@@ -260,6 +261,34 @@ class VoiceChannel(Channel):
 
 def _is_macos() -> bool:
     return os.uname().sysname == "Darwin"
+
+
+def _wake_chime_path() -> str:
+    """A short rising two-tone blip confirming the wake word landed. Generated
+    once with the stdlib (no numpy) and cached."""
+    import math
+    import wave
+
+    path = "/tmp/homie_wake_chime.wav"
+    if not os.path.exists(path):
+        rate = 16000
+        samples = []
+        for freq, dur in ((660.0, 0.09), (880.0, 0.11)):
+            n = int(rate * dur)
+            for i in range(n):
+                fade = min(1.0, i / (rate * 0.01), (n - i) / (rate * 0.02))
+                samples.append(int(9000 * fade * math.sin(2 * math.pi * freq * i / rate)))
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"".join(int(s).to_bytes(2, "little", signed=True) for s in samples))
+    return path
+
+
+def _play_wake_chime() -> None:
+    player = ["afplay"] if _is_macos() else ["aplay", "-q"]
+    subprocess.run(player + [_wake_chime_path()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _strip_markdown(text: str) -> str:
