@@ -77,15 +77,15 @@ The `home_status` / `home_control` tools call the smarthome Flask server
 the vendor CLIs (the server owns the single allowed Higoal connection).
 
 **The server runs on the Pi** (systemd unit `smarthome`, enabled on boot).
-Dashboard / kiosk URL for the tablet: **http://192.168.68.65:8787**
+Dashboard / kiosk URL for the tablet: **http://raspberrypi.local:8787**
 
 ```bash
-curl -s http://192.168.68.65:8787/api/midea | python3 -m json.tool   # live AC state
+curl -s http://raspberrypi.local:8787/api/midea | python3 -m json.tool   # live AC state
 ssh akiva@raspberrypi journalctl -u smarthome -f                     # server logs
 ```
 
 `HOMIE_SMARTHOME_URL` points homie at the server: `http://localhost:8787` on the
-Pi, `http://192.168.68.65:8787` from the Mac. Unit tests fake the client
+Pi, `http://raspberrypi.local:8787` from the Mac. Unit tests fake the client
 (`tests/test_smart_home.py`); the live check is a status question + a reversible
 light toggle through the real brain.
 
