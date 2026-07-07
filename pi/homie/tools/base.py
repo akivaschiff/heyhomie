@@ -32,6 +32,8 @@ class ToolContext:
     smarthome: object = None
     # CronStore (services/cron.py) — persistent scheduled home actions
     cron: object = None
+    # system speaker volume with .get() -> percent and .set(percent) (services/volume.py)
+    volume: object = None
     # deliver a rendered payload to another channel out of band (e.g. "send to Telegram")
     push: Callable[[str, object], bool] = None
     # mutable scratchpad shared across a session (e.g. the loaded recipe)

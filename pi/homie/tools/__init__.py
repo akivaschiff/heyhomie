@@ -9,6 +9,7 @@ from homie.tools import (
     shopping_list,
     smart_home,
     timers,
+    volume,
 )
 
 
@@ -22,4 +23,5 @@ def all_tools():
         *shabbat.TOOLS,
         *smart_home.TOOLS,
         *schedule.TOOLS,
+        *volume.TOOLS,
     ]

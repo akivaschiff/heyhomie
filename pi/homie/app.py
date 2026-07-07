@@ -19,6 +19,7 @@ from homie.config import Config
 from homie.services.shabbat import fetch_shabbat_times
 from homie.services.cron import CronStore
 from homie.services.smarthome import SmartHomeClient
+from homie.services.volume import system_volume
 from homie.services.web import fetch_url, make_recipe_extractor, tavily_search
 from homie.store import get_store
 from homie.tools import all_tools
@@ -45,6 +46,7 @@ def build_brain(channel, config: Config = None):
         shabbat_times=fetch_shabbat_times,
         smarthome=SmartHomeClient(),
         cron=CronStore(),
+        volume=system_volume(),
         push=_make_push(channel),
         session={},
     )
