@@ -74,16 +74,39 @@ All three feed the same brain + tools + store. Voice (Deepgram) and Telegram are
 
 The `home_status` / `home_control` tools call the smarthome Flask server
 (`smarthome/server.py`, port 8787 — contract in `smarthome/API_CONTRACT.md`), never
-the vendor CLIs (the server owns the single allowed Higoal connection). Observe:
+the vendor CLIs (the server owns the single allowed Higoal connection).
+
+**The server runs on the Pi** (systemd unit `smarthome`, enabled on boot).
+Dashboard / kiosk URL for the tablet: **http://192.168.68.65:8787**
 
 ```bash
-curl -s localhost:8787/api/midea | python3 -m json.tool     # live AC state
-open http://localhost:8787                                   # dashboard
+curl -s http://192.168.68.65:8787/api/midea | python3 -m json.tool   # live AC state
+ssh akiva@raspberrypi journalctl -u smarthome -f                     # server logs
 ```
 
-`HOMIE_SMARTHOME_URL` points homie at the server (from the Pi: the server host's
-LAN address). Unit tests fake the client (`tests/test_smart_home.py`); the live
-check is a status question + a reversible light toggle through the real brain.
+`HOMIE_SMARTHOME_URL` points homie at the server: `http://localhost:8787` on the
+Pi, `http://192.168.68.65:8787` from the Mac. Unit tests fake the client
+(`tests/test_smart_home.py`); the live check is a status question + a reversible
+light toggle through the real brain.
+
+## Scheduled home actions (cron on the Pi)
+
+`schedule_set/list/cancel` manage a tagged block in the Pi user's crontab; each
+entry is a plain `curl` to the smarthome server, so it fires with homie down.
+
+```bash
+ssh akiva@raspberrypi crontab -l                              # see the block
+ssh akiva@raspberrypi 'journalctl -u cron --since "1h ago"'   # did it fire?
+```
+
+## Pi debugging
+
+```bash
+ssh akiva@raspberrypi journalctl -u homie -f    # live: wake, heard, tools, ⚠️ turn errors
+```
+
+Every turn (including errors) is traced to Langfuse from the Pi as well —
+https://cloud.langfuse.com, one `turn` trace per exchange.
 
 ## Keys
 

@@ -99,6 +99,10 @@ class Brain:
             try:
                 final = self._run_loop()
             except Exception as exc:
+                import traceback
+
+                print(f"⚠️  turn failed: {type(exc).__name__}: {exc}")
+                traceback.print_exc()
                 final = "Sorry, something went wrong."
                 self.conversation.add("assistant", [{"type": "text", "text": final}])
                 self.ctx.channel.deliver(final)

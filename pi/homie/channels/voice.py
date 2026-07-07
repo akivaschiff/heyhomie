@@ -71,6 +71,7 @@ class VoiceChannel(Channel):
             self._current_playback = None
 
     def announce(self, text: str) -> None:
+        print(f"📢 announce: {text}")
         self.voice.speak(_strip_markdown(text))
 
     def show_screen(self, rendered: Rendered) -> None:
@@ -182,15 +183,24 @@ class VoiceChannel(Channel):
         silence_limit = int(SILENCE_DURATION * fps)
         min_frames = int(MIN_RECORDING * fps)
         peak = 0
+        second_peaks = []
+        current_second_peak = 0
         for i in range(int(MAX_RECORDING * fps)):
             pcm = self.recorder.read()
             frames.extend(pcm)
             amplitude = max((abs(s) for s in pcm), default=0)
             peak = max(peak, amplitude)
+            current_second_peak = max(current_second_peak, amplitude)
+            if (i + 1) % fps == 0:
+                second_peaks.append(current_second_peak)
+                current_second_peak = 0
             silence_frames = silence_frames + 1 if amplitude < self.silence_threshold else 0
             if i >= min_frames and silence_frames >= silence_limit:
                 break
-        print(f"   (recorded {len(frames) / SAMPLE_RATE:.1f}s, peak {peak}, threshold {self.silence_threshold})")
+        print(
+            f"   (recorded {len(frames) / SAMPLE_RATE:.1f}s, peak {peak}, "
+            f"threshold {self.silence_threshold}, per-second {second_peaks})"
+        )
         if len(frames) < SAMPLE_RATE // 2:
             return b""
         return pcm_to_wav(frames, SAMPLE_RATE)
@@ -211,7 +221,9 @@ class VoiceChannel(Channel):
             pcm = self.recorder.read()
             peaks.append(max((abs(s) for s in pcm), default=0))
         ambient = sorted(peaks)[len(peaks) // 2]
-        self.silence_threshold = max(SILENCE_THRESHOLD, int(ambient * 2.5))
+        # clamp: the S330's AGC makes ambient samples swing wildly; close speech
+        # peaks >10k, so anything above ~2500 would start rejecting real commands
+        self.silence_threshold = min(2500, max(SILENCE_THRESHOLD, int(ambient * 2.5)))
         print(f"   mic calibrated: ambient peak ~{ambient}, silence threshold {self.silence_threshold}")
 
     def _flush_recorder(self) -> None:
