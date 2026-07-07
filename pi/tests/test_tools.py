@@ -10,7 +10,7 @@ from homie.tools.memory import _save as memory_save
 from homie.tools.recipes import _load as recipe_load
 from homie.tools.reminders import _set as reminder_set
 from homie.tools.shabbat import _show as shabbat_show
-from homie.tools.shopping_list import _add, _remove, _show
+from homie.tools.shopping_list import _add, _flat, _parse, _remove, _show
 from homie.tools.timers import _cancel as timer_cancel
 from homie.tools.timers import _list as timer_list
 from homie.tools.timers import _set as timer_set
@@ -18,45 +18,56 @@ from homie.tools.timers import _set as timer_set
 
 # --- list ---
 
+def _items(ctx):
+    return _flat(_parse(ctx.store.read(LIST)))[0]
+
+
 def test_list_add_appears_in_store(ctx):
-    _add({"item": "green apples"}, ctx)
-    assert ctx.store.lines(LIST) == ["green apples"]
+    _add({"item": "green apples", "category": "Fruits"}, ctx)
+    assert _items(ctx) == ["green apples"]
+    assert ctx.store.read(LIST) == "# Fruits\ngreen apples\n"
+
+
+def test_list_add_groups_by_section_order(ctx):
+    _add({"item": "milk", "category": "Dairy"}, ctx)
+    _add({"item": "bananas", "category": "Fruits"}, ctx)
+    assert _items(ctx) == ["bananas", "milk"]  # Fruits sorts before Dairy
 
 
 def test_list_remove_last(ctx):
-    _add({"item": "milk"}, ctx)
-    _add({"item": "bread"}, ctx)
+    _add({"item": "milk", "category": "Dairy"}, ctx)
+    _add({"item": "bread", "category": "Everything else"}, ctx)
     out = json.loads(_remove({"item": "last"}, ctx))
     assert out["removed"] == "bread"
-    assert ctx.store.lines(LIST) == ["milk"]
+    assert _items(ctx) == ["milk"]
 
 
 def test_list_remove_by_match_and_correct(ctx):
-    _add({"item": "red apples"}, ctx)
+    _add({"item": "red apples", "category": "Fruits"}, ctx)
     _remove({"item": "red"}, ctx)
-    _add({"item": "green apples"}, ctx)
-    assert ctx.store.lines(LIST) == ["green apples"]
+    _add({"item": "green apples", "category": "Fruits"}, ctx)
+    assert _items(ctx) == ["green apples"]
 
 
 def test_list_show_renders_to_screen(ctx, channel):
-    _add({"item": "eggs"}, ctx)
+    _add({"item": "eggs", "category": "Dairy"}, ctx)
     _show({}, ctx)
     assert channel.shown, "list should render on the screen surface"
     assert "eggs" in channel.shown[-1].structured["items"]
 
 
 def test_list_remove_word_boundary(ctx):
-    _add({"item": "shredded wheat"}, ctx)
-    _add({"item": "red apples"}, ctx)
+    _add({"item": "shredded wheat", "category": "Everything else"}, ctx)
+    _add({"item": "red apples", "category": "Fruits"}, ctx)
     out = json.loads(_remove({"item": "red"}, ctx))
     assert out["removed"] == "red apples"
-    assert ctx.store.lines(LIST) == ["shredded wheat"]
+    assert _items(ctx) == ["shredded wheat"]
 
 
 def test_list_show_target_telegram_uses_push(ctx, channel):
     sent = {}
     ctx.push = lambda name, rendered: sent.setdefault("to", name) or True
-    _add({"item": "eggs"}, ctx)
+    _add({"item": "eggs", "category": "Dairy"}, ctx)
     out = json.loads(_show({"target": "telegram"}, ctx))
     assert out["sent_to"] == "telegram"
     assert not channel.shown  # delivered elsewhere, not on this screen

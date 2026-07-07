@@ -54,21 +54,46 @@ def index():
         return Response(f.read(), mimetype="text/html")
 
 
+LIST_SECTIONS = [
+    "Fruits", "Vegetables", "Dairy", "Meat & fish", "Everything else", "General supplies",
+]
+
+
 @app.get("/list")
 def shopping_list():
     try:
         with open(LIST_FILE, encoding="utf-8") as f:
-            items = [ln.strip() for ln in f if ln.strip()]
+            text = f.read()
     except FileNotFoundError:
-        items = []
-    return Response(_list_html(items), mimetype="text/html")
+        text = ""
+    return Response(_list_html(_parse_sections(text)), mimetype="text/html")
 
 
-def _list_html(items):
-    rows = "".join(f"<li>{html.escape(i)}</li>" for i in items)
-    if items:
-        count = f"{len(items)} item{'s' if len(items) != 1 else ''}"
-        body = f"<p class='meta'>{count}</p><ul>{rows}</ul>"
+def _parse_sections(text):
+    groups = {c: [] for c in LIST_SECTIONS}
+    current = "Everything else"
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            name = line[2:].strip()
+            current = name if name in groups else "Everything else"
+        else:
+            groups[current].append(line)
+    return [(c, groups[c]) for c in LIST_SECTIONS if groups[c]]
+
+
+def _list_html(sections):
+    if sections:
+        total = sum(len(items) for _, items in sections)
+        head = f"<p class='meta'>{total} item{'s' if total != 1 else ''}</p>"
+        body = head + "".join(
+            f"<h2>{html.escape(cat)}</h2><ul>"
+            + "".join(f"<li>{html.escape(i)}</li>" for i in items)
+            + "</ul>"
+            for cat, items in sections
+        )
     else:
         body = "<p class='empty'>Nothing on the list yet.</p>"
     return (
@@ -86,7 +111,9 @@ def _list_html(items):
         "-webkit-font-smoothing:antialiased;line-height:1.5;}"
         "main{max-width:640px;margin:0 auto;padding:56px 24px 80px;}"
         "h1{font-size:2rem;font-weight:700;letter-spacing:-0.02em;margin:0 0 2px;}"
-        ".meta{color:var(--muted);font-size:0.9rem;margin:0 0 20px;}"
+        "h2{font-size:0.8rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;"
+        "color:var(--muted);margin:28px 0 2px;}"
+        ".meta{color:var(--muted);font-size:0.9rem;margin:0 0 8px;}"
         "ul{list-style:none;padding:0;margin:0;}"
         "li{font-size:1.05rem;padding:11px 0 11px 26px;position:relative;"
         "border-bottom:1px solid var(--line);}"

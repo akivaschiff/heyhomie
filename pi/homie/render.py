@@ -11,6 +11,8 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
   body {{ font-family: -apple-system, system-ui, sans-serif; margin: 0;
     padding: 6vw; background: #fafaf7; color: #1a1a1a; }}
   h1 {{ font-size: 7vw; margin: 0 0 4vw; }}
+  h2 {{ font-size: 4vw; margin: 6vw 0 1vw; color: #777;
+    text-transform: uppercase; letter-spacing: 0.08em; }}
   ul {{ list-style: none; padding: 0; margin: 0; }}
   li {{ font-size: 5.5vw; padding: 3vw 0; border-bottom: 1px solid #ddd; }}
   .meta {{ color: #777; font-size: 4vw; }}
@@ -31,6 +33,19 @@ def list_page(title: str, items: list[str]) -> str:
     else:
         body = f"<h1>{html.escape(title)}</h1><p class='meta'>empty</p>"
     return page(title, body)
+
+
+def grouped_list_page(title: str, sections: list[tuple[str, list[str]]]) -> str:
+    if not sections:
+        body = f"<h1>{html.escape(title)}</h1><p class='meta'>empty</p>"
+        return page(title, body)
+    blocks = "".join(
+        f"<h2>{html.escape(cat)}</h2><ul>"
+        + "".join(f"<li>{html.escape(i)}</li>" for i in items)
+        + "</ul>"
+        for cat, items in sections
+    )
+    return page(title, f"<h1>{html.escape(title)}</h1>{blocks}")
 
 
 def recipe_page(name: str, ingredients: list[str], steps: list[str], source: str = "") -> str:
