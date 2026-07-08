@@ -50,6 +50,9 @@ def build_brain(channel, config: Config = None):
         push=_make_push(channel),
         session={},
     )
+    from homie.tools.reminders import start_watch
+
+    start_watch(ctx)  # re-arm persisted reminders and keep the file watched
     return Brain(anthropic, all_tools(), ctx, config, clock, tracer=build_tracer())
 
 

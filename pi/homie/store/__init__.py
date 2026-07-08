@@ -13,8 +13,9 @@ from abc import ABC, abstractmethod
 LIST = "list"
 RECIPES = "recipes"
 MEMORY = "memory"
+REMINDERS = "reminders"
 
-DOCS = (LIST, RECIPES, MEMORY)
+DOCS = (LIST, RECIPES, MEMORY, REMINDERS)
 
 
 class Store(ABC):
