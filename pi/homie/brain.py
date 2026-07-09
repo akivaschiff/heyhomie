@@ -120,7 +120,9 @@ class Brain:
 
         for _ in range(MAX_TOOL_ITERATIONS):
             messages = self.conversation.get()
-            with self.tracer.generation(messages, self.config.model, params) as gen:
+            with self.tracer.generation(
+                messages, self.config.model, params, system=system, tools=schemas
+            ) as gen:
                 response = self.client.messages.create(
                     model=self.config.model,
                     max_tokens=self.config.max_tokens,

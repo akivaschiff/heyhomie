@@ -108,6 +108,19 @@ ssh akiva@raspberrypi journalctl -u homie -f    # live: wake, heard, tools, ⚠�
 Every turn (including errors) is traced to Langfuse from the Pi as well —
 https://cloud.langfuse.com, one `turn` trace per exchange.
 
+Traces are queryable directly (keys in `pi/.env`), no UI needed:
+
+```bash
+cd pi && export $(grep -E '^LANGFUSE' .env | xargs)
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  "https://cloud.langfuse.com/api/public/traces?limit=30"          # recent turns (input/output per trace)
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  "https://cloud.langfuse.com/api/public/observations?traceId=<id>" # generations + tool spans inside a turn
+```
+
+Note the trace detail shows `turn` twice (trace header + root span) — v3 SDK
+mirrors the root observation to the trace; it's one execution, not a duplicate.
+
 ## Keys
 
 `pi/.env` (copy from `.env.example`): `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `TAVILY_API_KEY` (recipe search), `TELEGRAM_BOT_TOKEN`, `PORCUPINE_ACCESS_KEY`, `GOOGLE_SERVICE_ACCOUNT_PATH`, and the three `*_FILE_ID` for the Drive store.

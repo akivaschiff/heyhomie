@@ -24,7 +24,7 @@ class NoopTracer:
     def turn(self, user_text):
         return _NoopRec()
 
-    def generation(self, messages, model, params):
+    def generation(self, messages, model, params, system=None, tools=None):
         return _NoopRec()
 
     def tool(self, name, tool_input):
@@ -69,14 +69,15 @@ class LangfuseTracer:
             )
         )
 
-    def generation(self, messages, model, params):
+    def generation(self, messages, model, params, system=None, tools=None):
         return _LangfuseRec(
             self.client.start_as_current_observation(
                 name="claude",
                 as_type="generation",
-                input=messages,
+                input={"system": system, "messages": messages},
                 model=model,
                 model_parameters=params,
+                metadata={"tools": tools},
             )
         )
 
