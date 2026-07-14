@@ -5,7 +5,7 @@ requests>=2.31.0
 
 # Voice channel — Deepgram REST (STT/TTS) + Porcupine wake word + mic capture
 pvporcupine>=4.0.0
-pvrecorder>=1.2.*
+pvrecorder>=1.2.0
 
 # Shared store — Google Drive (system of record)
 google-api-python-client>=2.120.0
