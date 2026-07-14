@@ -30,6 +30,54 @@ def test_partial_match_still_rejected():
     assert _match_history(HISTORY, "גבינת קוטג") is None
 
 
+def test_plural_singular_stems_match():
+    index = [HistoryItem("P_BANANA", "בננה במשקל", "BY_WEIGHT")]
+    assert _match_history(index, "בננות").code == "P_BANANA"
+
+
+def test_final_letters_normalize():
+    index = [HistoryItem("P_RED", "תפוח עץ אדום", "BY_WEIGHT")]
+    assert _match_history(index, "תפוחים אדומים").code == "P_RED"
+
+
+def test_potato_compound_never_crosses_with_apples():
+    index = [
+        HistoryItem("P_POTATO", "תפוח אדמה אדום ארוז", "BY_PACKAGE"),
+        HistoryItem("P_APPLES", "מארז תפוחים סמיט", "BY_PACKAGE"),
+    ]
+    assert _match_history(index, "תפוחים אדומים") is None
+    assert _match_history(index, "תפוחי אדמה").code == "P_POTATO"
+
+
+def test_collection_word_is_skipped_to_head():
+    index = [HistoryItem("P_BUNCH", "אשכול בננה", "BY_PACKAGE")]
+    assert _match_history(index, "בננות").code == "P_BUNCH"
+
+
+def test_shared_prefix_is_not_a_match():
+    index = [HistoryItem("P_CANDY", "סוכריות מנטה", "BY_UNIT")]
+    assert _match_history(index, "סוכר") is None
+
+
+def test_search_fallback_filters_by_head_noun(monkeypatch):
+    milk = sh.Product(
+        code="P_VANILLA", sku="1", name="סוכריות וניל", summary="", brand="",
+        manufacturer="", price=5.0, price_formatted="5 ₪", selling_method="BY_UNIT",
+        in_stock=True, image_url="", unit_description="", min_qty=0, max_qty=0,
+    )
+    sugar = sh.Product(
+        code="P_SUGAR", sku="2", name="סוכר לבן", summary="", brand="",
+        manufacturer="", price=6.0, price_formatted="6 ₪", selling_method="BY_UNIT",
+        in_stock=True, image_url="", unit_description="", min_qty=0, max_qty=0,
+    )
+    monkeypatch.setattr(sh, "search", lambda q, session=None: [milk, sugar])
+    cart = ShufersalCart(session_factory=lambda: FakeSession([]))
+    cart._history = []
+    res = cart.resolve("סוכר")
+    assert res.code == "P_SUGAR"
+    assert res.source == "search"
+
+
 class FakeResponse:
     def __init__(self, text):
         self.text = text

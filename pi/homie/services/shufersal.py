@@ -446,30 +446,77 @@ def build_history_index(
     return index
 
 
-_PACKAGING_WORDS = {"מארז", "חבילת", "שקית", "זוג", "רביעיית", "שלישיית", "מבצע"}
+_PACKAGING_WORDS = {"מארז", "חבילת", "שקית", "זוג", "רביעיית", "שלישיית", "מבצע", "אשכול", "צרור"}
+
+_FINAL_LETTERS = str.maketrans("םןץףך", "מנצפכ")
+
+# Compounds whose parts mean something else alone: potato is literally "earth
+# apple", so without gluing it, "red apples" resolves to red potatoes and back.
+_COMPOUNDS = (
+    ("תפוחי אדמה", "תפוח־אדמה"),
+    ("תפוח אדמה", "תפוח־אדמה"),
+    ('תפו"א', "תפוח־אדמה"),
+)
+
+
+def _canon(text: str) -> str:
+    text = text.lower().translate(_FINAL_LETTERS)
+    for phrase, glued in _COMPOUNDS:
+        text = text.replace(phrase, glued)
+    return text
+
+
+def _stems(word: str) -> set[str]:
+    """Hebrew number/gender suffixes, so בננות matches בננה without a prefix rule —
+    prefixes are too loose (סוכריות starts with סוכר but candies are not sugar)."""
+    word = word.translate(_FINAL_LETTERS)
+    stems = {word}
+    for suffix in ("ות", "ימ"):
+        if word.endswith(suffix) and len(word) > len(suffix) + 1:
+            stems.add(word[: -len(suffix)])
+    if word.endswith("ה") and len(word) > 2:
+        stems.add(word[:-1])
+    return stems
+
+
+def _word_match(word: str, token: str) -> bool:
+    return bool(_stems(word) & _stems(token))
+
+
+def _head_matches(words: list[str], tokens: list[str]) -> bool:
+    """The head noun must match: Hebrew product names lead with what the thing IS
+    (packaging words aside), and trailing words are qualifiers — 'סוכר' must not
+    resolve to 'רסק תפו"ע ללא תוספת סוכר' just because the word appears at the end."""
+    head = next((w for w in words if w not in _PACKAGING_WORDS), "")
+    return any(_word_match(head, t) for t in tokens)
+
+
+def _match_frac(words: list[str], tokens: list[str]) -> float:
+    matched = sum(1 for t in tokens if any(_word_match(w, t) for w in words))
+    return matched / len(tokens)
+
+
+def _tokens(query: str) -> list[str]:
+    return [t for t in _canon(query).split() if len(t) >= 2]
+
+
+def _name_matches(name: str, tokens: list[str]) -> float:
+    """0.0 if the head noun misses; otherwise the fraction of query tokens found.
+    Most tokens must land — 'תפוחים אדומים' (red apples) shares a word with plenty
+    of red produce, and one hit is not a match."""
+    words = _canon(name).split()
+    if not _head_matches(words, tokens):
+        return 0.0
+    return _match_frac(words, tokens)
 
 
 def _match_history(index: list[HistoryItem], query: str) -> HistoryItem | None:
-    tokens = [t for t in query.lower().split() if len(t) >= 2]
+    tokens = _tokens(query)
     if not tokens:
         return None
     best, best_frac = None, 0.0
     for item in index:  # already most-recent-first; strict > keeps the most recent on ties
-        words = item.name.lower().split()
-        # The head noun must match: Hebrew product names lead with what the thing IS
-        # (packaging words aside), and trailing words are qualifiers — 'סוכר' must not
-        # resolve to 'רסק תפו"ע ללא תוספת סוכר' just because the word appears at the end.
-        head = next((w for w in words if w not in _PACKAGING_WORDS), "")
-        if not any(head == t or (len(t) >= 3 and head.startswith(t)) for t in tokens):
-            continue
-        matched = sum(
-            1
-            for t in tokens
-            if any(w == t or (len(t) >= 3 and w.startswith(t)) for w in words)
-        )
-        frac = matched / len(tokens)
-        # Require most query words to land — otherwise 'תפוחי אדמה' (potato) matches
-        # 'תפוחים' (apples) on one shared prefix. A loose substring is not enough.
+        frac = _name_matches(item.name, tokens)
         if frac >= 0.6 and frac > best_frac:
             best, best_frac = item, frac
     return best
@@ -484,7 +531,7 @@ class ShufersalCart:
         self,
         session_factory=make_session,
         max_history_orders: int = 3,
-        search_fallback: bool = False,
+        search_fallback: bool = True,
     ):
         self._factory = session_factory
         self._max = max_history_orders
@@ -510,7 +557,12 @@ class ShufersalCart:
         if not self._search_fallback:
             return None
         results = search(query, session=self.session)
-        ranked = [p for p in results if p.in_stock] or results
+        tokens = _tokens(query)
+        ranked = [
+            p
+            for p in results
+            if p.in_stock and _name_matches(p.name or p.summary, tokens) >= 0.6
+        ]
         if not ranked:
             return None
         p = ranked[0]
