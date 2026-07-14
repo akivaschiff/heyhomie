@@ -189,6 +189,21 @@ def make_session(cookie_path: str | None = None) -> requests.Session:
     return session
 
 
+def is_authenticated(session: requests.Session) -> bool:
+    """Sessions silently degrade: past the server's idle timeout the JSESSIONID dies
+    and requests ride the remember-me cookie — identity known, but writes go to a NEW
+    'pre-identification' cart that hijacks the account cart (newest-modified wins on
+    restore) and triggers a merge popup in the user's browser. The status endpoint is
+    the reliable tell: 'true' only for a fully authenticated session."""
+    try:
+        resp = session.get(
+            f"{BASE}/authentication/get-status-includes-otp", timeout=15
+        )
+        return resp.text.strip().lower() == "true"
+    except requests.RequestException:
+        return False
+
+
 def _prime_csrf(session: requests.Session) -> str | None:
     """The XSRF-TOKEN rotates on every response, scoped to /online, and cart writes are
     checked against the current one — a stale token 302-redirects the write to the
@@ -265,6 +280,16 @@ def add_to_cart(
     CSRFToken header (set on the session) or the server 302-redirects to home."""
     session = session or make_session()
     qty_str = str(qty)
+    # Guard BEFORE any request that could touch the cart (_prime_csrf included):
+    # a write on an expired session still returns 200 but forks a stray cart.
+    if not is_authenticated(session):
+        return {
+            "ok": False,
+            "status": 0,
+            "reason": "session_expired",
+            "product_code": product_code,
+            "qty": qty_str,
+        }
     body = {
         "productCodePost": product_code,
         "productCode": product_code,
@@ -421,6 +446,9 @@ def build_history_index(
     return index
 
 
+_PACKAGING_WORDS = {"מארז", "חבילת", "שקית", "זוג", "רביעיית", "שלישיית", "מבצע"}
+
+
 def _match_history(index: list[HistoryItem], query: str) -> HistoryItem | None:
     tokens = [t for t in query.lower().split() if len(t) >= 2]
     if not tokens:
@@ -428,6 +456,12 @@ def _match_history(index: list[HistoryItem], query: str) -> HistoryItem | None:
     best, best_frac = None, 0.0
     for item in index:  # already most-recent-first; strict > keeps the most recent on ties
         words = item.name.lower().split()
+        # The head noun must match: Hebrew product names lead with what the thing IS
+        # (packaging words aside), and trailing words are qualifiers — 'סוכר' must not
+        # resolve to 'רסק תפו"ע ללא תוספת סוכר' just because the word appears at the end.
+        head = next((w for w in words if w not in _PACKAGING_WORDS), "")
+        if not any(head == t or (len(t) >= 3 and head.startswith(t)) for t in tokens):
+            continue
         matched = sum(
             1
             for t in tokens
@@ -482,19 +516,33 @@ class ShufersalCart:
         p = ranked[0]
         return Resolution(p.code, p.name or p.summary, p.selling_method, p.price_formatted, "search")
 
+    def _add_verified(self, res: Resolution, qty) -> dict:
+        """A 200 from /cart/add is not proof the item reached the account cart, so
+        success is only claimed after reading the bound cart back and finding it."""
+        out = add_to_cart(res.code, qty, res.selling_method, session=self.session)
+        if out.get("ok"):
+            resp = self.session.get(f"{BASE}/cart/load", timeout=25)
+            if not any(
+                line.product_code == res.code
+                for line in _parse_cart_html(resp.text).lines
+            ):
+                out = {**out, "ok": False, "reason": "not_in_account_cart"}
+        return out
+
     def add_item(self, query: str, qty=1) -> dict:
         res = self.resolve(query)
         if res is None:
             return {"ok": False, "reason": "not_found", "query": query}
-        out = add_to_cart(res.code, qty, res.selling_method, session=self.session)
+        out = self._add_verified(res, qty)
         if not out.get("ok"):
             # The login session expires on a long-lived service; a failed write is
             # usually a dead session. Re-login once and retry before giving up.
             self._session = None
-            out = add_to_cart(res.code, qty, res.selling_method, session=self.session)
+            out = self._add_verified(res, qty)
         return {
             "ok": bool(out.get("ok")),
             "status": out.get("status"),
+            "reason": out.get("reason"),
             "source": res.source,
             "code": res.code,
             "name": res.name,

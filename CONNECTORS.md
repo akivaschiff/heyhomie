@@ -107,19 +107,38 @@ real Shufersal online cart (`services/shufersal.py`). Resolution is history-firs
 product is appended to the list line (`bananas — אשכול בננה`) so a wrong pick is
 visible on the kiosk.
 
-Auth is a captured cookie jar at `secrets/shufersal_cookies.json` (gitignored). No
-jar → the seam is `None` and adds still hit the list only (portability preserved).
-Re-capture the cookie with the headed harness in `.scratch/shufersal/` (`node
-capture.js`, log in, Ctrl-C) then `extract_runtime_cookies(...)`.
+Auth is a real credential login (`HOMIE_SHUFERSAL_USER`/`HOMIE_SHUFERSAL_PASSWORD`
+in `pi/.env`): FORM post to `j_spring_security_check`, then `GET
+/cart/load?restoreCart=true` to bind the session to the account cart — that's the
+same call the site's own JS fires on every page boot, so connector sessions and
+browser sessions converge on one cart. No creds → the seam is `None` and adds
+still hit the list only (portability preserved). Captured cookie jars are obsolete
+(they only ever reach an anonymous cart).
+
+Writes are verified visible in the user's real browser cart (2026-07-14). Gotcha
+when checking: an already-open browser session keeps its own session cart (hard
+reload keeps the JSESSIONID and doesn't re-restore) — verify with a fresh login
+(incognito / app relaunch), or `.scratch/shufersal/browser_probe.js` which does a
+scripted fresh-context login and prints the cart.
+
+Session expiry is the trap on the long-running Pi service: past the server's idle
+timeout the JSESSIONID dies and requests ride the remember-me cookie — adds still
+return 200 but fork a "pre-identification" cart that hijacks the account cart
+(newest-modified wins on restore) and triggers a merge popup in the user's
+browser. `add_to_cart` therefore refuses to write unless
+`/authentication/get-status-includes-otp` returns `true`, and `ShufersalCart`
+only reports ok after reading the bound cart back and finding the item (re-login
++ one retry in between).
 
 ```bash
-# watch the projection working, against the live cart:
-cd pi && HOMIE_SHUFERSAL_COOKIES=../secrets/shufersal_cookies.json venv/bin/python - <<'PY'
+# watch the projection working, against the live cart (creds come from pi/.env):
+cd pi && venv/bin/python - <<'PY'
+from dotenv import load_dotenv; load_dotenv(".env")
 from homie.services.shufersal import ShufersalCart, get_cart
 cart = ShufersalCart()
 print(cart.resolve("חלב"))          # history vs search + the SKU it picked
 print(cart.add_item("תפוחים", 1))   # resolve + add one package
-print(get_cart())                    # read the live cart back (HTML-parsed)
+print(get_cart(cart.session))        # read the live cart back (HTML-parsed)
 PY
 ```
 
