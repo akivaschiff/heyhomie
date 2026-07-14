@@ -59,6 +59,16 @@ class DeepgramVoice:
             mp3_player_cmd() + [path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
+    def listening_open(self) -> None:
+        """Rising two-tone: the mic is now open and it's the user's turn to speak.
+        Fires both after the wake word and when a follow-up window opens."""
+        _play_chime(_chime_path("open", _OPEN_TONES))
+
+    def listening_close(self) -> None:
+        """Falling two-tone: the mic has closed. Fires when the turn ends without a
+        follow-up, or a follow-up window times out in silence."""
+        _play_chime(_chime_path("close", _CLOSE_TONES))
+
 
 def _is_macos() -> bool:
     return os.uname().sysname == "Darwin"
@@ -84,3 +94,39 @@ def mp3_player_cmd() -> list:
     if _is_macos():
         return ["afplay"]
     return ["mpg123", "-q", "-a", alsa_speaker_device()]
+
+
+_OPEN_TONES = ((660.0, 0.09), (880.0, 0.11))  # rising: "your turn to speak"
+_CLOSE_TONES = ((880.0, 0.09), (660.0, 0.11))  # falling: "mic closed"
+
+
+def _chime_path(name: str, tones) -> str:
+    """A short two-tone blip synthesized once with the stdlib (no numpy) and cached
+    in /tmp, keyed by name and volume."""
+    import math
+    import wave
+
+    volume = int(os.environ.get("HOMIE_CHIME_VOLUME", "3000"))
+    path = f"/tmp/homie_{name}_chime_{volume}.wav"
+    if not os.path.exists(path):
+        rate = 16000
+        samples = []
+        for freq, dur in tones:
+            n = int(rate * dur)
+            for i in range(n):
+                fade = min(1.0, i / (rate * 0.01), (n - i) / (rate * 0.02))
+                samples.append(int(volume * fade * math.sin(2 * math.pi * freq * i / rate)))
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"".join(int(s).to_bytes(2, "little", signed=True) for s in samples))
+    return path
+
+
+def _play_chime(path: str) -> None:
+    if _is_macos():
+        player = ["afplay"]
+    else:
+        player = ["aplay", "-q", "-D", alsa_speaker_device()]
+    subprocess.run(player + [path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

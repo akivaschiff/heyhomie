@@ -31,7 +31,7 @@ SPEECH_WAIT = 4.0  # seconds to wait for speech to start before giving up the tu
 MIN_RECORDING = 1.0
 MAX_RECORDING = 30
 AMBIENT_WINDOW_FRAMES = 155  # ~5s rolling noise sample kept while wake-listening
-LISTENING_WINDOW = 8.0  # seconds to keep listening for a follow-up without re-waking
+LISTENING_WINDOW = 10.0  # max seconds to wait for a follow-up to *start* (only after a question)
 FOLLOWUP_SPEECH_FRAMES = 3  # ~100ms of sustained sound to open a follow-up (not a click)
 
 
@@ -123,7 +123,6 @@ class VoiceChannel(Channel):
                 if self.porcupine.process(pcm) >= 0:
                     self._retune_threshold(ambient)
                     print("🎤 wake")
-                    _play_wake_chime()  # audible "I heard you, speak now"
                     self._converse(brain)
                     print("Listening for wake word…")
         except KeyboardInterrupt:
@@ -166,22 +165,32 @@ class VoiceChannel(Channel):
             self.recorder.delete()
 
     def _converse(self, brain) -> None:
-        """Handle one wake: a turn, then a listening window for follow-ups."""
+        """Handle one wake: a turn, and — only when the assistant asked something
+        back — a follow-up window. The mic bracketing (open/close chimes) tracks the
+        listening lifecycle, so a follow-up turn gets the same audible cues as the wake."""
+        self.voice.listening_open()
         prefill = []
         while True:
             wav = self._record_turn(prefill)
             prefill = []
             if not wav:
+                self.voice.listening_close()
                 return
             transcript = self.voice.transcribe(wav)
             if not transcript:
+                self.voice.listening_close()
                 return
             print(f"   heard: {transcript}")
             self._filler_proc = self.fillers.play()  # instant "on it" while the brain works
-            brain.handle(transcript)
+            reply = brain.handle(transcript)
             self._flush_recorder()  # drop audio buffered during TTS so we don't hear ourselves
+            if not _expects_reply(reply):
+                self.voice.listening_close()
+                return
+            self.voice.listening_open()
             prefill = self._await_followup()
             if prefill is None:
+                self.voice.listening_close()
                 return
 
     def _record_turn(self, prefill: list = None) -> bytes:
@@ -290,38 +299,11 @@ def _is_macos() -> bool:
     return os.uname().sysname == "Darwin"
 
 
-def _wake_chime_path() -> str:
-    """A short rising two-tone blip confirming the wake word landed. Generated
-    once with the stdlib (no numpy) and cached."""
-    import math
-    import wave
-
-    volume = int(os.environ.get("HOMIE_CHIME_VOLUME", "3000"))
-    path = f"/tmp/homie_wake_chime_{volume}.wav"
-    if not os.path.exists(path):
-        rate = 16000
-        samples = []
-        for freq, dur in ((660.0, 0.09), (880.0, 0.11)):
-            n = int(rate * dur)
-            for i in range(n):
-                fade = min(1.0, i / (rate * 0.01), (n - i) / (rate * 0.02))
-                samples.append(int(volume * fade * math.sin(2 * math.pi * freq * i / rate)))
-        with wave.open(path, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(rate)
-            w.writeframes(b"".join(int(s).to_bytes(2, "little", signed=True) for s in samples))
-    return path
-
-
-def _play_wake_chime() -> None:
-    if _is_macos():
-        player = ["afplay"]
-    else:
-        from homie.services.voice import alsa_speaker_device
-
-        player = ["aplay", "-q", "-D", alsa_speaker_device()]
-    subprocess.run(player + [_wake_chime_path()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def _expects_reply(text: str) -> bool:
+    """Keep the mic open only when the assistant asked something back. A trailing
+    question mark is the reliable tell — completed actions end on a statement, and
+    those are exactly the turns where an open window catches stray kitchen chatter."""
+    return bool(text) and text.strip().endswith("?")
 
 
 def _strip_markdown(text: str) -> str:
