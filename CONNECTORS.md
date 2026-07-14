@@ -99,6 +99,34 @@ ssh akiva@raspberrypi crontab -l                              # see the block
 ssh akiva@raspberrypi 'journalctl -u cron --since "1h ago"'   # did it fire?
 ```
 
+## Shufersal cart (the supermarket projection)
+
+The Pi list is the source of truth; every `list_add` also projects the item into the
+real Shufersal online cart (`services/shufersal.py`). Resolution is history-first
+(a term you've ordered before → that exact SKU), catalog-search second. The chosen
+product is appended to the list line (`bananas — אשכול בננה`) so a wrong pick is
+visible on the kiosk.
+
+Auth is a captured cookie jar at `secrets/shufersal_cookies.json` (gitignored). No
+jar → the seam is `None` and adds still hit the list only (portability preserved).
+Re-capture the cookie with the headed harness in `.scratch/shufersal/` (`node
+capture.js`, log in, Ctrl-C) then `extract_runtime_cookies(...)`.
+
+```bash
+# watch the projection working, against the live cart:
+cd pi && HOMIE_SHUFERSAL_COOKIES=../secrets/shufersal_cookies.json venv/bin/python - <<'PY'
+from homie.services.shufersal import ShufersalCart, get_cart
+cart = ShufersalCart()
+print(cart.resolve("חלב"))          # history vs search + the SKU it picked
+print(cart.add_item("תפוחים", 1))   # resolve + add one package
+print(get_cart())                    # read the live cart back (HTML-parsed)
+PY
+```
+
+Endpoints (reverse-engineered, full notes in `.scratch/shufersal/API_FINDINGS.md`):
+`GET /search/results?q=<he>:relevance`, `POST /cart/add` (needs `CSRFToken` header,
+qty is absolute not additive), `GET /cart/load` (HTML only), `GET /my-account/orders`.
+
 ## Pi debugging
 
 ```bash

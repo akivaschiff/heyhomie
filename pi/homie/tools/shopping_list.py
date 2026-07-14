@@ -99,10 +99,34 @@ def _add(args: dict, ctx: ToolContext) -> str:
     category = args.get("category", DEFAULT_CATEGORY)
     if category not in CATEGORIES:
         category = DEFAULT_CATEGORY
+
+    cart = _sync_to_cart(args, item, ctx)
+    display = item
+    if cart and cart.get("ok") and cart.get("name"):
+        display = f"{item} — {cart['name']}"
+
     groups = _parse(ctx.store.read(LIST))
-    groups[category].append(item)
+    groups[category].append(display)
     ctx.store.write(LIST, _serialize(groups))
-    return json.dumps({"added": item, "category": category, "list": _nonempty(groups)})
+
+    result = {"added": item, "category": category, "list": _nonempty(groups)}
+    if cart is not None:
+        result["cart"] = cart
+    return json.dumps(result)
+
+
+def _sync_to_cart(args: dict, item: str, ctx: ToolContext):
+    """Project the add onto the live Shufersal cart. Best-effort: if there's no cart
+    seam (tests, Mac harness) or it fails, the list add still stands."""
+    shufersal = getattr(ctx, "shufersal", None)
+    if shufersal is None:
+        return None
+    query = (args.get("search_query") or item).strip()
+    quantity = args.get("quantity") or 1
+    try:
+        return shufersal.add_item(query, quantity)
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _remove(args: dict, ctx: ToolContext) -> str:
@@ -171,22 +195,47 @@ TOOLS = [
         name="list_add",
         description=(
             "Add an item to the shared supermarket list immediately, no confirmation. "
-            "Use for intents like 'we finished the garbage bags' or 'I need more apples'. "
-            "If the item is ambiguous (e.g. 'apples'), ask one clarifying question first, "
-            "then call this with the specific item (e.g. 'green apples'). Always classify "
-            "the item into one section. Sections: " + _CATEGORY_GUIDE
+            "This also drops the item into the real Shufersal online cart (one unit / "
+            "package by default). Use for intents like 'we finished the garbage bags' or "
+            "'I need more apples'. If the item is ambiguous (e.g. 'apples'), ask one "
+            "clarifying question first, then call this with the specific item. If the "
+            "user did not say HOW MANY, ask 'how many should I add?' and wait for the "
+            "answer before calling this. Always classify the item into one section. "
+            "Sections: " + _CATEGORY_GUIDE + " "
+            "The result's 'cart' field reports the supermarket sync: if it is absent or "
+            "its 'ok' is false, the item is on the list but NOT in the cart — say so "
+            "plainly (e.g. 'added to your list, but I couldn't add it to the cart'); "
+            "never claim it reached the cart unless 'ok' is true."
         ),
         input_schema={
             "type": "object",
             "properties": {
-                "item": {"type": "string", "description": "The item to add."},
+                "item": {"type": "string", "description": "The item to add, in the user's words."},
                 "category": {
                     "type": "string",
                     "enum": CATEGORIES,
                     "description": "Which section the item belongs in.",
                 },
+                "search_query": {
+                    "type": "string",
+                    "description": (
+                        "The item as a Hebrew supermarket search term, since the store's "
+                        "catalog is Hebrew (e.g. item 'green apples' -> 'תפוחים ירוקים', "
+                        "'milk' -> 'חלב', 'garbage bags' -> 'שקיות אשפה'). Keep it short."
+                    ),
+                },
+                "quantity": {
+                    "type": "number",
+                    "description": (
+                        "How many units/packages/kg to put in the cart. If the user did "
+                        "NOT say how many, ask them ('how many should I add?') and wait "
+                        "for the answer before calling this — do not silently default. "
+                        "Only once you know the amount, pass it here ('six cottage "
+                        "cheeses' -> 6, 'two kilos of apples' -> 2)."
+                    ),
+                },
             },
-            "required": ["item", "category"],
+            "required": ["item", "category", "search_query"],
         },
         handler=_add,
     ),

@@ -18,6 +18,7 @@ from homie.clock import Clock, Scheduler
 from homie.config import Config
 from homie.services.shabbat import fetch_shabbat_times
 from homie.services.cron import CronStore
+from homie.services.shufersal import ShufersalCart, DEFAULT_COOKIE_PATH, USER_ENV, PASS_ENV
 from homie.services.smarthome import SmartHomeClient
 from homie.services.volume import system_volume
 from homie.services.web import fetch_url, make_recipe_extractor, tavily_search
@@ -47,6 +48,7 @@ def build_brain(channel, config: Config = None):
         smarthome=SmartHomeClient(),
         cron=CronStore(),
         volume=system_volume(),
+        shufersal=_make_shufersal(),
         push=_make_push(channel),
         session={},
     )
@@ -54,6 +56,15 @@ def build_brain(channel, config: Config = None):
 
     start_watch(ctx)  # re-arm persisted reminders and keep the file watched
     return Brain(anthropic, all_tools(), ctx, config, clock, tracer=build_tracer())
+
+
+def _make_shufersal():
+    """The cart projection, when we can authenticate — credentials (preferred) or a
+    captured cookie jar. Absent both (tests, a fresh Mac), list adds still work; they
+    just don't reach the supermarket."""
+    have_creds = os.environ.get(USER_ENV) and os.environ.get(PASS_ENV)
+    cookies = os.environ.get("HOMIE_SHUFERSAL_COOKIES") or DEFAULT_COOKIE_PATH
+    return ShufersalCart() if (have_creds or os.path.exists(cookies)) else None
 
 
 def _make_push(current_channel):

@@ -34,6 +34,10 @@ class ToolContext:
     cron: object = None
     # system speaker volume with .get() -> percent and .set(percent) (services/volume.py)
     volume: object = None
+    # ShufersalCart (services/shufersal.py) — resolve a term to a SKU and sync it to
+    # the live supermarket cart. None when no cookie jar (tests, Mac harness) — the
+    # list still works without it, preserving the portability guarantee.
+    shufersal: object = None
     # deliver a rendered payload to another channel out of band (e.g. "send to Telegram")
     push: Callable[[str, object], bool] = None
     # mutable scratchpad shared across a session (e.g. the loaded recipe)
