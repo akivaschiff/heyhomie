@@ -422,15 +422,22 @@ def build_history_index(
 
 
 def _match_history(index: list[HistoryItem], query: str) -> HistoryItem | None:
-    tokens = [t for t in query.lower().split() if t]
+    tokens = [t for t in query.lower().split() if len(t) >= 2]
     if not tokens:
         return None
-    best, best_score = None, 0
+    best, best_frac = None, 0.0
     for item in index:  # already most-recent-first; strict > keeps the most recent on ties
-        name = item.name.lower()
-        score = sum(1 for t in tokens if t in name)
-        if score > best_score:
-            best, best_score = item, score
+        words = item.name.lower().split()
+        matched = sum(
+            1
+            for t in tokens
+            if any(w == t or (len(t) >= 3 and w.startswith(t)) for w in words)
+        )
+        frac = matched / len(tokens)
+        # Require most query words to land — otherwise 'תפוחי אדמה' (potato) matches
+        # 'תפוחים' (apples) on one shared prefix. A loose substring is not enough.
+        if frac >= 0.6 and frac > best_frac:
+            best, best_frac = item, frac
     return best
 
 
