@@ -75,7 +75,11 @@ export async function loadSchedules(btn){
   }
   setCount("sched-count", items.length+"", false);
 
-  if(!_targets.length) _targets = await inventory();
+  const formWrap = document.getElementById("sched-form-wrap");
+  if(!_targets.length){
+    formWrap.innerHTML='<div class="loading"><span class="spinner"></span>Loading devices…</div>';
+    _targets = await inventory();
+  }
   renderForm();
 }
 
