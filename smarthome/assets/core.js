@@ -5,8 +5,9 @@ export const isRTL = s => RTL_RE.test(String(s||""));
 export const dirAttr = s => isRTL(s) ? ' dir="rtl"' : '';
 export const esc = s => String(s??"").replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-export async function api(path, body){
-  const opt = body ? {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)} : {};
+export async function api(path, body, method){
+  const opt = {method: method || (body ? "POST" : "GET")};
+  if(body){ opt.headers={"Content-Type":"application/json"}; opt.body=JSON.stringify(body); }
   const r = await fetch(path, opt);
   return r.json();
 }

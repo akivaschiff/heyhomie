@@ -292,6 +292,44 @@
   .busy{opacity:.55;transition:opacity .2s}
   [dir="rtl"]{text-align:right}
 
+  /* ---------- tabs ---------- */
+  .tabs{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+  .tab-btn{appearance:none;font-family:var(--font);cursor:pointer;
+    border:1px solid var(--line-2);background:var(--surface);color:var(--ink-dim);
+    font-size:12.5px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;
+    height:40px;padding:0 20px;border-radius:999px;transition:.2s}
+  .tab-btn:hover{color:var(--ink);background:var(--surface-2)}
+  .tab-btn.active{color:var(--bg);background:var(--ink);border-color:transparent}
+  .tabpane{display:none}
+  .tabpane.active{display:block}
+
+  /* ---------- schedule list + form ---------- */
+  .sched{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .2s}
+  .sched.busy{opacity:.4}
+  .sched-main{flex:1;min-width:0}
+  .sched-desc{font-size:14.5px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+  .sched-meta{margin-top:3px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)}
+  .sched-del{appearance:none;flex:none;width:38px;height:38px;border-radius:11px;cursor:pointer;
+    border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-dim);font-size:14px;transition:.16s}
+  .sched-del:hover{color:var(--heat);border-color:rgba(255,130,89,.4);background:rgba(255,130,89,.1)}
+
+  .sched-form{margin-top:18px;background:var(--surface);border:1px solid var(--line);border-radius:18px;
+    padding:18px;box-shadow:var(--shadow)}
+  .sf-title{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:14px}
+  .sf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .sf-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .sf-field[hidden]{display:none}
+  .sf-field > span{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint)}
+  .sf-field select,.sf-field input{width:100%;font-family:var(--font);font-size:14px;font-weight:600;
+    color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:11px;padding:11px 12px}
+  .sf-foot{display:flex;align-items:center;justify-content:flex-end;gap:14px;margin-top:16px}
+  .sf-msg{flex:1;font-size:12.5px;color:var(--heat)}
+  .sf-add{appearance:none;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:700;letter-spacing:.06em;
+    color:var(--bg);background:var(--jade);border:none;border-radius:11px;padding:12px 22px;transition:.2s}
+  .sf-add:hover{filter:brightness(1.06)}
+  .sf-add:disabled{opacity:.5;cursor:default}
+
   /* ---------- theme override control ---------- */
   .themebtn{appearance:none;margin:0 0 8px auto;display:flex;align-items:center;gap:7px;
     border:1px solid var(--line-2);background:var(--surface);color:var(--ink-dim);

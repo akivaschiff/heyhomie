@@ -32,6 +32,12 @@
     </div>
   </header>
 
+  <nav class="tabs" id="tabs">
+    <button class="tab-btn active" type="button" data-tab="home">Home</button>
+    <button class="tab-btn" type="button" data-tab="schedules">Schedules</button>
+  </nav>
+
+  <div class="tabpane active" id="tab-home">
   <section id="lights-sec">
     <div class="shead">
       <span class="idx">01</span><h2>Lights</h2>
@@ -79,6 +85,22 @@
     </div>
     <div class="grid clim" id="splits"><div class="loading"><span class="spinner"></span>Reading units…</div></div>
   </section>
+  </div>
+
+  <div class="tabpane" id="tab-schedules">
+  <section id="sched-sec">
+    <div class="shead">
+      <span class="idx">05</span><h2>Schedules</h2>
+      <span class="count" id="sched-count"></span>
+      <span class="spacer"></span>
+      <button class="refresh" data-refresh="schedules">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-1.5 5"/><path d="M20 4v5h-5"/></svg>Refresh
+      </button>
+    </div>
+    <div id="sched-list"><div class="loading"><span class="spinner"></span>Loading schedules…</div></div>
+    <div id="sched-form-wrap"></div>
+  </section>
+  </div>
 </div>
 
 <script type="module" src="/assets/main.js"></script>
