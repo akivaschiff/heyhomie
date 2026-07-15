@@ -29,18 +29,22 @@ export async function loadHigoal(btn){
 
       if(e.type==="shutter"){
         blindCount++;
+        const stHTML = e.state ? `<span class="bstate ${e.state}">${e.state}</span>` : '';
         const c = el(`<div class="blind">
           <div class="bhead">
             <div class="bico">${ICON.blind}</div>
-            <div class="bname"${dirAttr(e.name)}>${esc(e.name)}</div>
+            <div class="bnamewrap">
+              <div class="bname"${dirAttr(e.name)}>${esc(e.name)}</div>
+              ${stHTML}
+            </div>
           </div>
           <div class="bbtns">
             <button class="bbtn open">${ICON.up}Open</button>
             <button class="bbtn close">${ICON.down}Close</button>
           </div></div>`);
         const [op,cl]=c.querySelectorAll("button");
-        op.onclick=()=>{ flash(op,"flash-open"); higoalSet(d.id,e.idx,true); };
-        cl.onclick=()=>{ flash(cl,"flash-close"); higoalSet(d.id,e.idx+1,true); };
+        op.onclick=()=>{ flash(op,"flash-open"); higoalSet(d.id,e.idx,true); scheduleHigoalReconcile(); };
+        cl.onclick=()=>{ flash(cl,"flash-close"); higoalSet(d.id,e.idx+1,true); scheduleHigoalReconcile(); };
         blindsWrap.appendChild(c);
         continue;
       }

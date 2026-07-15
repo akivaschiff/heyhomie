@@ -50,6 +50,27 @@ def connect(settle=4.0):
     return m
 
 
+_LATCHED = 255
+
+
+def _shutter_state(e):
+    """open/closed from the paired relay status bytes; None if never actuated.
+
+    Shutters latch the last direction: the open relay (even id) reads 255 when
+    open, the close relay (id+1) reads 255 when closed. The percentage byte is
+    unreliable, but these status bytes persist across the device's own reports.
+    """
+    resp = e.response
+    open_id = e.id if e.id % 2 == 0 else e.id - 1
+    open_on = resp[18 + open_id] == _LATCHED
+    close_on = resp[18 + open_id + 1] == _LATCHED
+    if open_on and not close_on:
+        return "open"
+    if close_on and not open_on:
+        return "closed"
+    return None
+
+
 def snapshot(m):
     out = []
     for dev in m.device_map.values():
@@ -66,7 +87,7 @@ def snapshot(m):
                 "on": e.is_turned_on() if resp else None,
             }
             if e.type == TYPE_SHUTTER:
-                entity["percentage"] = e.percentage() if resp else None
+                entity["state"] = _shutter_state(e) if resp else None
             d["entities"].append(entity)
         out.append(d)
     return out

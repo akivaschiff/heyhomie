@@ -6,7 +6,7 @@ def main():
     for dev in higoal_cli.snapshot(m):
         for e in dev["entities"]:
             if e["type"] == "shutter":
-                print(f"{dev['device']} | {e['name']} | {e['percentage']}")
+                print(f"{dev['device']} | {e['name']} | {e['state']}")
     m.mq.stop()
 
 

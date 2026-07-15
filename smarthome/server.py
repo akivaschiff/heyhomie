@@ -199,28 +199,6 @@ def api_higoal():
     return jsonify(higoal_cli.snapshot(m))
 
 
-@app.get("/api/higoal/raw")
-def api_higoal_raw():
-    m = higoal_manager()
-    out = []
-    for dev in m.device_map.values():
-        if not hasattr(dev, "entities"):
-            continue
-        shutters = [e for e in dev.entities if e.type == 3]
-        if not shutters:
-            continue
-        resp = shutters[0].response
-        out.append({
-            "device": dev.name,
-            "id": dev.id,
-            "shutter_idx": [e.id for e in shutters],
-            "status_bytes": {e.id: (list(resp)[18 + e.id] if resp else None) for e in shutters},
-            "pct_bytes": {e.id: (list(resp)[18 + e.id + 16] if resp else None) for e in shutters},
-            "raw": list(resp) if resp else None,
-        })
-    return jsonify(out)
-
-
 @app.post("/api/higoal/set")
 def api_higoal_set():
     body = request.get_json(force=True)
