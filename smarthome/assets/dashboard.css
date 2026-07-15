@@ -307,6 +307,9 @@
   .sched{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--line);
     border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .2s}
   .sched.busy{opacity:.4}
+  .sched-time{flex:none;font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink);
+    background:var(--surface-2);border:1px solid var(--line-2);border-radius:11px;padding:9px 12px;
+    min-width:64px;text-align:center}
   .sched-main{flex:1;min-width:0}
   .sched-desc{font-size:14.5px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
   .sched-meta{margin-top:3px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)}

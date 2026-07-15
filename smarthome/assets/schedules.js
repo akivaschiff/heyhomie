@@ -60,6 +60,7 @@ export async function loadSchedules(btn){
   for(const s of items){
     const meta = [RECURS.find(r=>r.v===s.recur)?.label || s.recur, s.date].filter(Boolean).join(" · ");
     const row = el(`<div class="sched">
+      <div class="sched-time">${esc(s.time || "—")}</div>
       <div class="sched-main">
         <div class="sched-desc"${dirAttr(s.description)}>${esc(s.description||s.id)}</div>
         <div class="sched-meta">${esc(meta)}</div>
@@ -139,8 +140,7 @@ async function submitForm(wrap){
   if(recur==="once" && !date){ msg.textContent="Pick a date."; return; }
 
   const commands = t.build(action, {temp});
-  const recurLabel = RECURS.find(r=>r.v===recur)?.label || recur;
-  const description = `${action} ${t.label} · ${time} · ${recurLabel}`;
+  const description = `${action} ${t.label}`;
 
   const btn = wrap.querySelector("#sf-add");
   btn.disabled=true; msg.textContent="";

@@ -223,11 +223,20 @@ def _today():
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _cron_time(cron_line):
+    try:
+        minute, hour = cron_line.split()[:2]
+        return f"{int(hour):02d}:{int(minute):02d}"
+    except (ValueError, IndexError):
+        return None
+
+
 @app.get("/api/schedules")
 def api_schedules_list():
     entries = _cron.prune_stale(_today())
     return jsonify([
-        {"id": e.id, "recur": e.recur, "date": e.date or None, "description": e.description}
+        {"id": e.id, "recur": e.recur, "date": e.date or None,
+         "time": _cron_time(e.cron_line), "description": e.description}
         for e in entries
     ])
 
