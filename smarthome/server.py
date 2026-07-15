@@ -5,7 +5,7 @@ import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, Response, send_from_directory
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -57,6 +57,11 @@ electra_cli._load_env()
 def index():
     with open(os.path.join(HERE, "dashboard.html"), encoding="utf-8") as f:
         return Response(f.read(), mimetype="text/html")
+
+
+@app.get("/assets/<path:filename>")
+def assets(filename):
+    return send_from_directory(os.path.join(HERE, "assets"), filename)
 
 
 LIST_SECTIONS = [
