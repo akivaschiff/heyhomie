@@ -323,8 +323,22 @@
   html[data-theme="shabbat"] .mark::after{animation-duration:7s}
   @media (max-width:720px){ .greet{display:none !important} }
 
-  @media (max-width:560px){
-    .grid.lights{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  @media (max-width:640px){
+    body{padding:16px 14px 48px}
+    header.top{gap:12px 14px; padding-bottom:16px}
+    .brand{gap:11px}
+    .mark{width:38px;height:38px}
+    .brand h1{font-size:17px}
+    .clock{font-size:clamp(26px,9vw,36px)}
+    .date{font-size:11px;margin-top:4px}
+    section{margin-top:24px}
+    .shead{margin-bottom:12px;gap:12px}
+    .grid.lights{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+    .grid.blinds{grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
     .grid.clim{grid-template-columns:1fr}
-    header.top{align-items:center}
+  }
+  @media (max-width:400px){
+    .brand .tag{display:none}
+    .grid.lights{grid-template-columns:1fr 1fr}
+    .grid.blinds{grid-template-columns:1fr}
   }
