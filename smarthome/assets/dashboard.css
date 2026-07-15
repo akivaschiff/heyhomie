@@ -209,13 +209,8 @@
   .blind .bico{width:34px;height:34px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;
     background:var(--surface-2);border:1px solid var(--line);color:var(--ink-dim)}
   .blind .bico svg{width:18px;height:18px}
-  .blind .bnamewrap{min-width:0;display:flex;flex-direction:column;gap:3px}
   .blind .bname{font-size:15px;font-weight:600;line-height:1.2;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .blind .bstate{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint)}
-  .blind .bstate.open{color:var(--cool)}
-  .blind .bstate.closed{color:var(--gold)}
-  .blind .bstate.part{color:var(--ink-dim)}
   .blind .bbtns{display:flex;gap:10px;margin-top:auto}
   .bbtn{flex:1;height:50px;border-radius:13px;border:1px solid var(--line-2);background:var(--surface-2);
     color:var(--ink);font-family:var(--font);font-size:13px;font-weight:650;letter-spacing:.05em;cursor:pointer;

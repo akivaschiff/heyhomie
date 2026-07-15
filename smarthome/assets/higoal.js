@@ -11,15 +11,6 @@ const ICON = {
 
 function named(e){ return e.name && !/channel\s*\d/i.test(e.name); }
 
-function blindState(pct){
-  if(pct===null||pct===undefined) return null;
-  const p = Number(pct);
-  if(!isFinite(p)) return null;
-  if(p<=0.05) return {label:"Open", cls:"open"};
-  if(p>=0.95) return {label:"Closed", cls:"closed"};
-  return {label:Math.round((1-p)*100)+"% open", cls:"part"};
-}
-
 export async function loadHigoal(btn){
   spinBtn(btn);
   const lightsWrap = document.getElementById("lights");
@@ -38,23 +29,18 @@ export async function loadHigoal(btn){
 
       if(e.type==="shutter"){
         blindCount++;
-        const st = blindState(e.percentage);
-        const stHTML = st ? `<span class="bstate ${st.cls}">${st.label}</span>` : '';
         const c = el(`<div class="blind">
           <div class="bhead">
             <div class="bico">${ICON.blind}</div>
-            <div class="bnamewrap">
-              <div class="bname"${dirAttr(e.name)}>${esc(e.name)}</div>
-              ${stHTML}
-            </div>
+            <div class="bname"${dirAttr(e.name)}>${esc(e.name)}</div>
           </div>
           <div class="bbtns">
             <button class="bbtn open">${ICON.up}Open</button>
             <button class="bbtn close">${ICON.down}Close</button>
           </div></div>`);
         const [op,cl]=c.querySelectorAll("button");
-        op.onclick=()=>{ flash(op,"flash-open"); higoalSet(d.id,e.idx,true); scheduleHigoalReconcile(); };
-        cl.onclick=()=>{ flash(cl,"flash-close"); higoalSet(d.id,e.idx+1,true); scheduleHigoalReconcile(); };
+        op.onclick=()=>{ flash(op,"flash-open"); higoalSet(d.id,e.idx,true); };
+        cl.onclick=()=>{ flash(cl,"flash-close"); higoalSet(d.id,e.idx+1,true); };
         blindsWrap.appendChild(c);
         continue;
       }
