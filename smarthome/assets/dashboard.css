@@ -333,6 +333,10 @@
     .brand h1{font-size:17px}
     .clock{font-size:clamp(26px,9vw,36px)}
     .date{font-size:11px;margin-top:4px}
+    .clockwrap{display:grid;grid-template-columns:auto auto;justify-content:start;align-items:center;
+      gap:7px 8px;text-align:left}
+    .themebtn{margin:0}
+    .clock,.date{grid-column:1/-1}
     section{margin-top:24px}
     .shead{margin-bottom:12px;gap:12px}
     .grid.lights{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
