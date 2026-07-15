@@ -296,14 +296,15 @@ def _electra_state_safe(d):
 @app.post("/api/electra/set")
 def api_electra_set():
     body = request.get_json(force=True)
-    electra_cli.set_state(
+    result = electra_cli.set_state(
         body["id"],
         power=body.get("power"),
         mode=body.get("mode"),
         temp=body.get("temp"),
         fan=body.get("fan"),
     )
-    return jsonify({"ok": True})
+    print(f"electra/set id={body.get('id')} power={body.get('power')} mode={body.get('mode')} -> {result}", flush=True)
+    return jsonify(result)
 
 
 @app.get("/api/midea")

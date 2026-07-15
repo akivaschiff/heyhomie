@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 
 from electrasmart.client import send_otp_request, get_otp_token, get_devices, AC
 
@@ -74,24 +75,51 @@ def read_state(d):
     }
 
 
-def set_state(ac_id, power=None, mode=None, temp=None, fan=None):
+def set_state(ac_id, power=None, mode=None, temp=None, fan=None, verify=True):
     imei, token = creds()
     ac = AC(imei, token, ac_id)
     ac.renew_sid()
-    if power is False or mode == "STBY":
-        ac.turn_off()
-        return
-    kwargs = {}
-    if mode is not None:
-        kwargs["ac_mode"] = mode
-    elif power is True:
-        kwargs["ac_mode"] = "COOL"
-    if fan is not None:
-        kwargs["fan_speed"] = fan
-    if temp is not None:
-        kwargs["temperature"] = int(temp)
-    if kwargs:
-        ac.modify_oper(**kwargs)
+
+    turning_off = power is False or mode == "STBY"
+    if turning_off:
+        want_on = False
+    elif power is True or (mode is not None and mode != "STBY"):
+        want_on = True
+    else:
+        want_on = None
+
+    def apply():
+        if turning_off:
+            ac.turn_off()
+            return
+        kwargs = {}
+        if mode is not None:
+            kwargs["ac_mode"] = mode
+        elif power is True:
+            kwargs["ac_mode"] = "COOL"
+        if fan is not None:
+            kwargs["fan_speed"] = fan
+        if temp is not None:
+            kwargs["temperature"] = int(temp)
+        if kwargs:
+            ac.modify_oper(**kwargs)
+
+    apply()
+
+    # Electra's cloud silently drops commands: it returns 200 while the unit never
+    # actuates. Confirm the unit reached the requested power state from telemetry,
+    # and re-send once if it didn't, so callers get the truth instead of a blind ok.
+    if not verify or want_on is None:
+        return {"ok": True, "verified": False, "on": want_on}
+    for attempt in range(2):
+        for _ in range(3):
+            time.sleep(1.2)
+            ac.update_status()
+            if ac.status.is_on == want_on:
+                return {"ok": True, "verified": True, "on": want_on}
+        if attempt == 0:
+            apply()
+    return {"ok": False, "verified": True, "on": ac.status.is_on}
 
 
 def main():

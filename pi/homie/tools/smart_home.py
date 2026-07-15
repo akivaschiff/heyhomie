@@ -89,7 +89,9 @@ def _actuate(ctx: ToolContext, device: dict, action: str, args: dict) -> dict:
         for key in ("temp", "mode", "fan"):
             if args.get(key) is not None and action == "on":
                 payload[key] = args[key]
-        ctx.smarthome.set(system, payload)
+        resp = ctx.smarthome.set(system, payload)
+        if isinstance(resp, dict) and resp.get("ok") is False:
+            raise RuntimeError(f"{device['name']} did not reach {action} (still {'on' if resp.get('on') else 'off'})")
     return {"name": device["name"], "did": action}
 
 

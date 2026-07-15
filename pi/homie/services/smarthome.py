@@ -22,6 +22,8 @@ class SmartHomeClient:
         return resp.json()
 
     def set(self, system: str, payload: dict) -> dict:
-        resp = requests.post(f"{self.base_url}/api/{system}/set", json=payload, timeout=15)
+        # Electra verifies + retries server-side (a few cloud round-trips), so the
+        # set call can take longer than a read; give it room before timing out.
+        resp = requests.post(f"{self.base_url}/api/{system}/set", json=payload, timeout=30)
         resp.raise_for_status()
         return resp.json()
