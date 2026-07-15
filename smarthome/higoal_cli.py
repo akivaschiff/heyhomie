@@ -58,13 +58,16 @@ def snapshot(m):
         d = {"device": dev.name, "id": dev.id, "model": dev.model_name, "entities": []}
         for e in dev.entities:
             resp = e.response
-            d["entities"].append({
+            entity = {
                 "idx": e.id,
                 "name": e.display_name,
                 "type": TYPE_NAME.get(e.type, e.type),
                 "online": e.is_online() if resp else None,
                 "on": e.is_turned_on() if resp else None,
-            })
+            }
+            if e.type == TYPE_SHUTTER:
+                entity["percentage"] = e.percentage() if resp else None
+            d["entities"].append(entity)
         out.append(d)
     return out
 

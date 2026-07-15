@@ -13,12 +13,13 @@ Base: `http://<host>:8787`
 [{ "device": "פאנל מטבח", "id": "MCKBTZ", "model": "2R",
    "entities": [
      { "idx": 2, "name": "top light", "type": "switch", "online": true, "on": true },
-     { "idx": 0, "name": "תריס מטבח", "type": "shutter", "online": true, "on": false }
+     { "idx": 0, "name": "תריס מטבח", "type": "shutter", "online": true, "on": false, "percentage": 0.0 }
    ]}]
 ```
 - `type` ∈ `"switch"` | `"dimmer/light"` | `"shutter"`.
 - Switches/dimmers → render a light toggle (use `on`).
 - Shutters → render Open/Close. The "open" button uses `idx`; the paired "close" button uses `idx+1`.
+- Shutter entities also carry `percentage` (`0.0` fully open → `1.0` fully closed); `on` is meaningless for shutters. `null` before first state arrives. Only present on `"shutter"` entities.
 - Entities whose `name` is empty or matches `channel <n>` are unconfigured — hide them.
 - `on`/`online` may be `null` before first state arrives.
 
