@@ -163,6 +163,7 @@
   @keyframes spin{to{transform:rotate(360deg)}}
 
   .grid{display:grid;gap:clamp(12px,1.1vw,18px)}
+  .grid > *{min-width:0}
   .grid.lights{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
   .grid.blinds{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
   .grid.clim{grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
@@ -248,6 +249,7 @@
     box-shadow:0 2px 6px rgba(0,0,0,.45);transition:transform .28s cubic-bezier(.34,1.56,.5,1)}
   .pw.on::after{transform:translateX(22px)}
 
+  .clim .chead,.clim .chead > div,.hero,.hero .now,.setblock,.cfoot,.selwrap{min-width:0}
   .hero{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;position:relative;z-index:1}
   .hero .now{display:flex;flex-direction:column;gap:2px}
   .hero .nowlbl{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-faint)}
