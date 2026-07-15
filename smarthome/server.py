@@ -15,6 +15,11 @@ LIST_FILE = os.environ.get(
     os.path.normpath(os.path.join(HERE, "..", "pi", ".homie-state", "list.txt")),
 )
 
+KIOSK_FILE = os.environ.get(
+    "HOMIE_KIOSK_FILE",
+    os.path.normpath(os.path.join(HERE, "..", "pi", ".homie-state", "kiosk.txt")),
+)
+
 import higoal_cli
 import electra_cli
 import midea_cli
@@ -67,6 +72,64 @@ def shopping_list():
     except FileNotFoundError:
         text = ""
     return Response(_list_html(_parse_sections(text)), mimetype="text/html")
+
+
+# ---------- kiosk view switching ----------
+# The tablet lives on /kiosk, an iframe shell that polls /api/kiosk/view once a
+# second and swaps to the selected page. Voice (kiosk_show tool) and the dashboard
+# both drive it by writing KIOSK_FILE. VIEWS maps a view token -> the page URL.
+KIOSK_VIEWS = {"dashboard": "/", "list": "/list"}
+DEFAULT_VIEW = "dashboard"
+
+
+def _read_view():
+    try:
+        with open(KIOSK_FILE, encoding="utf-8") as f:
+            v = f.read().strip()
+    except FileNotFoundError:
+        v = ""
+    return v if v in KIOSK_VIEWS else DEFAULT_VIEW
+
+
+@app.get("/api/kiosk/view")
+def api_kiosk_view():
+    return jsonify({"view": _read_view()})
+
+
+@app.post("/api/kiosk/view")
+def api_kiosk_view_set():
+    body = request.get_json(force=True)
+    view = str(body.get("view", "")).strip().lower()
+    if view not in KIOSK_VIEWS:
+        return jsonify({"error": "unknown view", "views": list(KIOSK_VIEWS)}), 400
+    os.makedirs(os.path.dirname(KIOSK_FILE), exist_ok=True)
+    with open(KIOSK_FILE, "w", encoding="utf-8") as f:
+        f.write(view + "\n")
+    return jsonify({"ok": True, "view": view})
+
+
+_KIOSK_SHELL = (
+    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<title>Homie Kiosk</title><style>"
+    "html,body{margin:0;height:100%;background:#191919;overflow:hidden;}"
+    "iframe{border:0;width:100%;height:100%;display:block;}"
+    "</style></head><body><iframe id='v'></iframe><script>"
+    "const VIEWS={dashboard:'/',list:'/list'};let cur=null;"
+    "async function tick(){try{"
+    "const r=await fetch('/api/kiosk/view',{cache:'no-store'});"
+    "const d=await r.json();"
+    "if(d.view!==cur&&VIEWS[d.view]){cur=d.view;"
+    "document.getElementById('v').src=VIEWS[d.view];}"
+    "}catch(e){}}"
+    "tick();setInterval(tick,1000);"
+    "</script></body></html>"
+)
+
+
+@app.get("/kiosk")
+def kiosk():
+    return Response(_KIOSK_SHELL, mimetype="text/html")
 
 
 def _parse_sections(text):

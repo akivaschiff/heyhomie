@@ -64,7 +64,7 @@ fi
 
 echo "▶ Deps + compile check + service reload + restart…"
 ssh "${SSH_OPTS[@]}" "${PI_HOST}" "set -e
-  cd ${PI_DIR}/pi
+  cd ~/${PI_DIR}/pi
   .venv/bin/pip install -q -r requirements.txt
   # Fail before touching the running service if the synced tree won't compile.
   .venv/bin/python -m compileall -q homie
@@ -77,7 +77,7 @@ ssh "${SSH_OPTS[@]}" "${PI_HOST}" "set -e
   sleep 3
   echo \"  status: \$(systemctl is-active homie)\"
 
-  cd ${PI_DIR}/smarthome
+  cd ~/${PI_DIR}/smarthome
   .venv/bin/pip install -q -r requirements.txt
   .venv/bin/python -m compileall -q server.py higoal_cli.py electra_cli.py midea_cli.py higoal_client
   sudo systemctl restart smarthome

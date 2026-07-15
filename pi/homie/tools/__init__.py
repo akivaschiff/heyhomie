@@ -1,6 +1,7 @@
 """Tool registry — the full durable tool set the brain orchestrates over."""
 
 from homie.tools import (
+    kiosk,
     memory,
     recipes,
     reminders,
@@ -24,4 +25,5 @@ def all_tools():
         *smart_home.TOOLS,
         *schedule.TOOLS,
         *volume.TOOLS,
+        *kiosk.TOOLS,
     ]
