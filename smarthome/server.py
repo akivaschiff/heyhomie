@@ -1,14 +1,23 @@
 import os
 import sys
+import json
 import html
 import asyncio
 import threading
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, jsonify, request, Response, send_from_directory
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "pi")))
+
+from homie.services.cron import CronStore, Entry, build_cron_line, build_curl
+
+SCHEDULE_BASE_URL = os.environ.get("HOMIE_SMARTHOME_URL", "http://localhost:8787").rstrip("/")
+SCHEDULE_RECURS = ("once", "daily", "weekdays", "weekends")
+_cron = CronStore()
 
 LIST_FILE = os.environ.get(
     "HOMIE_LIST_FILE",
@@ -207,6 +216,57 @@ def api_higoal_set():
         return jsonify({"error": "not found"}), 404
     e.turn_on() if body["on"] else e.turn_off()
     return jsonify({"ok": True})
+
+
+# ---------- schedules (shared crontab block with the LLM's schedule tools) ----------
+def _today():
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+@app.get("/api/schedules")
+def api_schedules_list():
+    entries = _cron.prune_stale(_today())
+    return jsonify([
+        {"id": e.id, "recur": e.recur, "date": e.date or None, "description": e.description}
+        for e in entries
+    ])
+
+
+@app.post("/api/schedules")
+def api_schedules_create():
+    body = request.get_json(force=True)
+    recur = body.get("recur", "once")
+    if recur not in SCHEDULE_RECURS:
+        return jsonify({"error": f"recur must be one of {SCHEDULE_RECURS}"}), 400
+    date = body.get("date") or ""
+    if recur == "once" and not date:
+        return jsonify({"error": "one-time schedules need a date (YYYY-MM-DD)"}), 400
+    commands = body.get("commands") or []
+    if not commands:
+        return jsonify({"error": "no commands"}), 400
+
+    curls = [build_curl(SCHEDULE_BASE_URL, c["system"], json.dumps(c["payload"])) for c in commands]
+    entries = _cron.prune_stale(_today())
+    entry = Entry(
+        id=_cron.next_id(),
+        recur=recur,
+        date=date,
+        description=body.get("description", ""),
+        cron_line=build_cron_line(body["time"], recur, date, curls),
+    )
+    entries.append(entry)
+    _cron.save_entries(entries)
+    return jsonify({"id": entry.id, "description": entry.description})
+
+
+@app.delete("/api/schedules/<sid>")
+def api_schedules_delete(sid):
+    entries = _cron.prune_stale(_today())
+    keep = [e for e in entries if e.id != sid]
+    if len(keep) == len(entries):
+        return jsonify({"error": f"no schedule '{sid}'"}), 404
+    _cron.save_entries(keep)
+    return jsonify({"deleted": sid})
 
 
 @app.get("/api/electra")
