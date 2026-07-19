@@ -143,3 +143,9 @@ def test_permanent_failure_announces_after_window(ctx):
     assert ctx.smarthome.attempts >= 2  # retried across the window
     assert len(ctx.channel.announced) == 1
     assert "couldn't turn off the main air conditioner" in ctx.channel.announced[0]
+
+
+def test_offline_room_ac_failure_label_has_no_double_article(ctx):
+    ctx.smarthome = FakeSmartHome(fail={"midea"})
+    _drive(ctx, {"kind": "ac", "target": "The Office", "action": "on"})
+    assert ctx.channel.announced == ["Sorry, I couldn't turn on The Office."]

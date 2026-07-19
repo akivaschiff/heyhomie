@@ -141,9 +141,12 @@ _GERUND = {"on": "turning on", "off": "turning off", "open": "opening", "close":
 
 
 def _label(device: dict) -> str:
-    if device["kind"] == "ac":
-        return "the main air conditioner" if device.get("zone") == "main" else f"the {device['name']}"
-    return device["name"]
+    if device["kind"] != "ac":
+        return device["name"]
+    if device.get("zone") == "main":
+        return "the main air conditioner"
+    name = device["name"]
+    return name if name.lower().startswith("the ") else f"the {name}"
 
 
 def _join(labels: list) -> str:
