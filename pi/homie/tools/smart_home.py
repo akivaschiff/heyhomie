@@ -11,57 +11,69 @@ this tool resolves names to devices and fans out group actions in one call.
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from homie.tools.base import Tool, ToolContext
 
 _CHANNEL_NOISE = re.compile(r"channel \d+$")
 
 
-def _inventory(ctx: ToolContext) -> tuple:
-    # Each backend is a separate cloud/LAN system; a blip on one must not hide the
-    # others. Collect what we can and report which systems were unreachable so the
-    # caller can tell "no such device" apart from "that system is temporarily down".
+def _higoal_devices(ctx: ToolContext) -> list:
+    out = []
+    for panel in ctx.smarthome.get("higoal"):
+        for ent in panel.get("entities", []):
+            name = (ent.get("name") or "").strip()
+            if not name or _CHANNEL_NOISE.search(name):
+                continue
+            kind = "blind" if ent["type"] == "shutter" else "light"
+            out.append({
+                "kind": kind,
+                "name": name,
+                "on": ent.get("on"),
+                "addr": ("higoal", panel["id"], ent["idx"]),
+            })
+    return out
+
+
+def _midea_devices(ctx: ToolContext) -> list:
+    return [{
+        "kind": "ac",
+        "zone": "upstairs",
+        "name": unit["name"],
+        "on": unit.get("power"),
+        "temp": unit.get("target"),
+        "room_temp": unit.get("indoor"),
+        "addr": ("midea", unit["id"]),
+    } for unit in ctx.smarthome.get("midea")]
+
+
+def _electra_devices(ctx: ToolContext) -> list:
+    return [{
+        "kind": "ac",
+        "zone": "main",
+        "name": unit["name"],
+        "on": unit.get("on"),
+        "temp": unit.get("target"),
+        "addr": ("electra", unit["id"]),
+    } for unit in ctx.smarthome.get("electra")]
+
+
+_BUILDERS = {"higoal": _higoal_devices, "midea": _midea_devices, "electra": _electra_devices}
+
+
+def _inventory(ctx: ToolContext, systems=None) -> tuple:
+    # Read only the backends the caller needs (turning off the main AC shouldn't wait
+    # on the slow upstairs Midea LAN), and read them in parallel so latency is the
+    # slowest single system, not their sum. Each is a separate cloud/LAN system, so a
+    # blip on one is isolated: it's reported as unavailable, never hiding the others.
+    systems = tuple(systems) if systems else tuple(_BUILDERS)
     devices, down = [], []
-    try:
-        for panel in ctx.smarthome.get("higoal"):
-            for ent in panel.get("entities", []):
-                name = (ent.get("name") or "").strip()
-                if not name or _CHANNEL_NOISE.search(name):
-                    continue
-                kind = "blind" if ent["type"] == "shutter" else "light"
-                devices.append({
-                    "kind": kind,
-                    "name": name,
-                    "on": ent.get("on"),
-                    "addr": ("higoal", panel["id"], ent["idx"]),
-                })
-    except Exception:
-        down.append("higoal")
-    try:
-        for unit in ctx.smarthome.get("midea"):
-            devices.append({
-                "kind": "ac",
-                "zone": "upstairs",
-                "name": unit["name"],
-                "on": unit.get("power"),
-                "temp": unit.get("target"),
-                "room_temp": unit.get("indoor"),
-                "addr": ("midea", unit["id"]),
-            })
-    except Exception:
-        down.append("midea")
-    try:
-        for unit in ctx.smarthome.get("electra"):
-            devices.append({
-                "kind": "ac",
-                "zone": "main",
-                "name": unit["name"],
-                "on": unit.get("on"),
-                "temp": unit.get("target"),
-                "addr": ("electra", unit["id"]),
-            })
-    except Exception:
-        down.append("electra")
+    with ThreadPoolExecutor(max_workers=len(systems)) as ex:
+        for system, fut in [(s, ex.submit(_BUILDERS[s], ctx)) for s in systems]:
+            try:
+                devices.extend(fut.result())
+            except Exception:
+                down.append(system)
     return devices, down
 
 
@@ -110,6 +122,18 @@ def _actuate(ctx: ToolContext, device: dict, action: str, args: dict) -> dict:
 _SYSTEMS_FOR = {"light": ("higoal",), "blind": ("higoal",), "ac": ("midea", "electra")}
 
 
+def _target_systems(kind: str, target: str) -> tuple:
+    # Narrow the read to only the backend a target can live on, so common commands
+    # skip slow/unrelated systems (a named/zoned AC needn't poll the other one).
+    if kind == "ac":
+        t = target.lower().strip()
+        if t in ("main", "downstairs", "central"):
+            return ("electra",)
+        if t in ("upstairs", "bedrooms"):
+            return ("midea",)
+    return _SYSTEMS_FOR.get(kind, tuple(_BUILDERS))
+
+
 _RETRY_WINDOW_S = 30
 _RETRY_GAP_S = 5
 _VERB = {"on": "turn on", "off": "turn off", "open": "open", "close": "close"}
@@ -150,8 +174,8 @@ def _drive(ctx: ToolContext, pending: list, action: str, args: dict, deadline: f
 def _status(args: dict, ctx: ToolContext) -> str:
     if ctx.smarthome is None:
         return json.dumps({"error": "smart home server not configured"})
-    devices, down = _inventory(ctx)
     kind = args.get("kind")
+    devices, down = _inventory(ctx, _SYSTEMS_FOR.get(kind) if kind else None)
     if kind:
         devices = [d for d in devices if d["kind"] == kind]
     out = {"devices": [{k: v for k, v in d.items() if k != "addr"} for d in devices]}
@@ -168,10 +192,10 @@ def _control(args: dict, ctx: ToolContext) -> str:
     if action not in valid.get(kind, ()):
         return json.dumps({"error": f"action '{action}' invalid for {kind}; use {valid.get(kind)}"})
 
-    devices, down = _inventory(ctx)
+    devices, down = _inventory(ctx, _target_systems(kind, target))
     matched = _resolve(devices, kind, target)
     if not matched:
-        relevant_down = [s for s in _SYSTEMS_FOR.get(kind, ()) if s in down]
+        relevant_down = [s for s in _target_systems(kind, target) if s in down]
         if relevant_down:
             return json.dumps({"error": f"the {kind} system is temporarily unreachable; try again",
                                "unavailable": relevant_down})
