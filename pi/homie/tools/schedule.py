@@ -47,7 +47,8 @@ def _set(args: dict, ctx: ToolContext) -> str:
         return json.dumps({"error": "one-time schedules need a date (YYYY-MM-DD)"})
 
     kind, target, action = args["kind"], args["target"], args["action"]
-    matched = _resolve(_inventory(ctx), kind, target)
+    devices, _ = _inventory(ctx)
+    matched = _resolve(devices, kind, target)
     if not matched:
         return json.dumps({"error": f"no {kind} matching '{target}'"})
 

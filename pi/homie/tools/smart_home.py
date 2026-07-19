@@ -110,6 +110,43 @@ def _actuate(ctx: ToolContext, device: dict, action: str, args: dict) -> dict:
 _SYSTEMS_FOR = {"light": ("higoal",), "blind": ("higoal",), "ac": ("midea", "electra")}
 
 
+_RETRY_WINDOW_S = 30
+_RETRY_GAP_S = 5
+_VERB = {"on": "turn on", "off": "turn off", "open": "open", "close": "close"}
+_GERUND = {"on": "turning on", "off": "turning off", "open": "opening", "close": "closing"}
+
+
+def _label(device: dict) -> str:
+    if device["kind"] == "ac":
+        return "the main air conditioner" if device.get("zone") == "main" else f"the {device['name']}"
+    return device["name"]
+
+
+def _join(labels: list) -> str:
+    if len(labels) <= 1:
+        return labels[0] if labels else ""
+    return ", ".join(labels[:-1]) + " and " + labels[-1]
+
+
+def _drive(ctx: ToolContext, pending: list, action: str, args: dict, deadline: float) -> None:
+    # Optimistic execution: the turn already acknowledged, so actuate off the request
+    # thread, keep retrying transient failures until the deadline, and only speak up
+    # if the devices never reach the requested state.
+    failed = []
+    for device in pending:
+        try:
+            _actuate(ctx, device, action, args)
+        except Exception as exc:
+            print(f"⚠️  home_control: could not {action} {device['name']}: {exc}", flush=True)
+            failed.append(device)
+    if not failed:
+        return
+    if ctx.clock.monotonic() < deadline:
+        ctx.scheduler.schedule(_RETRY_GAP_S, lambda: _drive(ctx, failed, action, args, deadline))
+    else:
+        ctx.channel.announce(f"Sorry, I couldn't {_VERB[action]} {_join([_label(d) for d in failed])}.")
+
+
 def _status(args: dict, ctx: ToolContext) -> str:
     if ctx.smarthome is None:
         return json.dumps({"error": "smart home server not configured"})
@@ -143,16 +180,15 @@ def _control(args: dict, ctx: ToolContext) -> str:
     if len(matched) > 3 and target.lower() not in ("all", "upstairs", "bedrooms", "main", "downstairs", "central"):
         return json.dumps({"ambiguous": target, "candidates": [d["name"] for d in matched]})
 
-    done, failed = [], []
-    for device in matched:
-        try:
-            done.append(_actuate(ctx, device, action, args))
-        except Exception as exc:
-            failed.append({"name": device["name"], "error": str(exc)})
-    result = {"done": done}
-    if failed:
-        result["failed"] = failed
-    return json.dumps(result)
+    deadline = ctx.clock.monotonic() + _RETRY_WINDOW_S
+    ctx.scheduler.schedule(0, lambda: _drive(ctx, list(matched), action, args, deadline))
+    return json.dumps({
+        "started": action,
+        "devices": [_label(d) for d in matched],
+        "note": ("Running in the background — acknowledge in the present tense "
+                 f"('{_GERUND[action]} …'), never say it's already done. The user is "
+                 "told automatically only if it ultimately fails, so don't check state."),
+    })
 
 
 _TOPOLOGY = (
@@ -189,7 +225,9 @@ TOOLS = [
             "(exact name from home_status is safest), or 'all' for every device of "
             "that kind, or for ACs a zone: 'upstairs' (the 4 bedroom/office splits) "
             "or 'main' (the downstairs central unit). Group targets fan out in one "
-            "call. " + _TOPOLOGY
+            "call. Returns immediately: the action runs in the background with retries, "
+            "and the user is notified only if it ultimately fails — so acknowledge in "
+            "the present tense and never claim it is already done. " + _TOPOLOGY
         ),
         input_schema={
             "type": "object",
