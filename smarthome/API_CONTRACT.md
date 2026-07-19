@@ -54,6 +54,8 @@ Base: `http://<host>:8787`
 ```
 - `name` = friendly room name; `id` = stable key to send commands with.
 - `indoor` = live measured room temp; `target` = setpoint.
+- An unreachable unit still returns `name` + `id` with `"online": false`, an
+  `error`, and no state fields — so it stays addressable by room while offline.
 
 `POST /api/midea/set` → any subset of:
 `{ "id": "<net_ac key>", "power": <bool>, "mode": "<mode>", "temp": <number>, "fan": "<fan>" }`

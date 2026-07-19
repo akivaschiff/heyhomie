@@ -316,7 +316,8 @@ def api_midea():
 
 async def _midea_states(devices):
     out = await asyncio.gather(*[midea_cli.state(d) for d in devices], return_exceptions=True)
-    return [r if not isinstance(r, Exception) else {"name": d["name"], "online": False, "error": str(r)}
+    return [r if not isinstance(r, Exception)
+            else {"name": d.get("room") or d["name"], "id": d["name"], "online": False, "error": str(r)}
             for d, r in zip(devices, out)]
 
 
