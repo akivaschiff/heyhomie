@@ -17,40 +17,52 @@ from homie.tools.base import Tool, ToolContext
 _CHANNEL_NOISE = re.compile(r"channel \d+$")
 
 
-def _inventory(ctx: ToolContext) -> list:
-    devices = []
-    for panel in ctx.smarthome.get("higoal"):
-        for ent in panel.get("entities", []):
-            name = (ent.get("name") or "").strip()
-            if not name or _CHANNEL_NOISE.search(name):
-                continue
-            kind = "blind" if ent["type"] == "shutter" else "light"
+def _inventory(ctx: ToolContext) -> tuple:
+    # Each backend is a separate cloud/LAN system; a blip on one must not hide the
+    # others. Collect what we can and report which systems were unreachable so the
+    # caller can tell "no such device" apart from "that system is temporarily down".
+    devices, down = [], []
+    try:
+        for panel in ctx.smarthome.get("higoal"):
+            for ent in panel.get("entities", []):
+                name = (ent.get("name") or "").strip()
+                if not name or _CHANNEL_NOISE.search(name):
+                    continue
+                kind = "blind" if ent["type"] == "shutter" else "light"
+                devices.append({
+                    "kind": kind,
+                    "name": name,
+                    "on": ent.get("on"),
+                    "addr": ("higoal", panel["id"], ent["idx"]),
+                })
+    except Exception:
+        down.append("higoal")
+    try:
+        for unit in ctx.smarthome.get("midea"):
             devices.append({
-                "kind": kind,
-                "name": name,
-                "on": ent.get("on"),
-                "addr": ("higoal", panel["id"], ent["idx"]),
+                "kind": "ac",
+                "zone": "upstairs",
+                "name": unit["name"],
+                "on": unit.get("power"),
+                "temp": unit.get("target"),
+                "room_temp": unit.get("indoor"),
+                "addr": ("midea", unit["id"]),
             })
-    for unit in ctx.smarthome.get("midea"):
-        devices.append({
-            "kind": "ac",
-            "zone": "upstairs",
-            "name": unit["name"],
-            "on": unit.get("power"),
-            "temp": unit.get("target"),
-            "room_temp": unit.get("indoor"),
-            "addr": ("midea", unit["id"]),
-        })
-    for unit in ctx.smarthome.get("electra"):
-        devices.append({
-            "kind": "ac",
-            "zone": "main",
-            "name": unit["name"],
-            "on": unit.get("on"),
-            "temp": unit.get("target"),
-            "addr": ("electra", unit["id"]),
-        })
-    return devices
+    except Exception:
+        down.append("midea")
+    try:
+        for unit in ctx.smarthome.get("electra"):
+            devices.append({
+                "kind": "ac",
+                "zone": "main",
+                "name": unit["name"],
+                "on": unit.get("on"),
+                "temp": unit.get("target"),
+                "addr": ("electra", unit["id"]),
+            })
+    except Exception:
+        down.append("electra")
+    return devices, down
 
 
 def _matches(target: str, name: str) -> bool:
@@ -95,14 +107,20 @@ def _actuate(ctx: ToolContext, device: dict, action: str, args: dict) -> dict:
     return {"name": device["name"], "did": action}
 
 
+_SYSTEMS_FOR = {"light": ("higoal",), "blind": ("higoal",), "ac": ("midea", "electra")}
+
+
 def _status(args: dict, ctx: ToolContext) -> str:
     if ctx.smarthome is None:
         return json.dumps({"error": "smart home server not configured"})
-    devices = _inventory(ctx)
+    devices, down = _inventory(ctx)
     kind = args.get("kind")
     if kind:
         devices = [d for d in devices if d["kind"] == kind]
-    return json.dumps([{k: v for k, v in d.items() if k != "addr"} for d in devices])
+    out = {"devices": [{k: v for k, v in d.items() if k != "addr"} for d in devices]}
+    if down:
+        out["unavailable"] = down
+    return json.dumps(out)
 
 
 def _control(args: dict, ctx: ToolContext) -> str:
@@ -113,9 +131,13 @@ def _control(args: dict, ctx: ToolContext) -> str:
     if action not in valid.get(kind, ()):
         return json.dumps({"error": f"action '{action}' invalid for {kind}; use {valid.get(kind)}"})
 
-    devices = _inventory(ctx)
+    devices, down = _inventory(ctx)
     matched = _resolve(devices, kind, target)
     if not matched:
+        relevant_down = [s for s in _SYSTEMS_FOR.get(kind, ()) if s in down]
+        if relevant_down:
+            return json.dumps({"error": f"the {kind} system is temporarily unreachable; try again",
+                               "unavailable": relevant_down})
         names = [d["name"] for d in devices if d["kind"] == kind]
         return json.dumps({"error": f"no {kind} matching '{target}'", "available": names})
     if len(matched) > 3 and target.lower() not in ("all", "upstairs", "bedrooms", "main", "downstairs", "central"):

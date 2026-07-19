@@ -6,6 +6,7 @@ need — homie only speaks the stable contract in smarthome/API_CONTRACT.md.
 """
 
 import os
+import time
 
 import requests
 
@@ -17,9 +18,20 @@ class SmartHomeClient:
         self.base_url = (base_url or os.environ.get("HOMIE_SMARTHOME_URL", DEFAULT_URL)).rstrip("/")
 
     def get(self, system: str) -> list:
-        resp = requests.get(f"{self.base_url}/api/{system}", timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        # The Electra cloud read (token + device list) blips intermittently; one
+        # retry turns a transient 500/timeout into a success instead of failing
+        # the caller's whole request.
+        last = None
+        for attempt in range(2):
+            try:
+                resp = requests.get(f"{self.base_url}/api/{system}", timeout=15)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as exc:
+                last = exc
+                if attempt == 0:
+                    time.sleep(1)
+        raise last
 
     def set(self, system: str, payload: dict) -> dict:
         # Electra verifies + retries server-side (a few cloud round-trips), so the
