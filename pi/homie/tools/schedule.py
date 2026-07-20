@@ -3,7 +3,8 @@
 schedule_set resolves the target devices NOW (via the smarthome server), embeds
 the concrete curl commands in a crontab entry, and from then on plain cron fires
 them — homie and Claude are not needed at fire time. Recurrence is cron-native:
-once (date-guarded, auto-pruned), daily, weekdays (Sun-Thu), weekends (Fri-Sat).
+once (date-guarded, auto-pruned), daily, weekdays (Sun-Thu), weekends (Fri-Sat),
+sun_fri (Sun-Fri, i.e. every day except Shabbat).
 """
 
 import json
@@ -12,7 +13,7 @@ from homie.services.cron import build_cron_line, build_curl
 from homie.tools.base import Tool, ToolContext
 from homie.tools.smart_home import _inventory, _resolve
 
-RECURS = ("once", "daily", "weekdays", "weekends")
+RECURS = ("once", "daily", "weekdays", "weekends", "sun_fri")
 
 
 def _payloads(device: dict, action: str, args: dict) -> tuple:
@@ -107,8 +108,9 @@ TOOLS = [
             "Schedule a smart-home action (same kind/target/action semantics as "
             "home_control) at a clock time, persistently — it fires via cron even if "
             "the assistant is down. recur: 'once' (needs date YYYY-MM-DD — compute it "
-            "from the current date, e.g. 'tonight'), 'daily', 'weekdays' (Sun-Thu) or "
-            "'weekends' (Fri-Sat). For 'on at 19:00 and off at 8:00' make two calls."
+            "from the current date, e.g. 'tonight'), 'daily', 'weekdays' (Sun-Thu), "
+            "'weekends' (Fri-Sat) or 'sun_fri' (Sun-Fri, every day except Shabbat). "
+            "For 'on at 19:00 and off at 8:00' make two calls."
         ),
         input_schema={
             "type": "object",

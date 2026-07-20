@@ -11,6 +11,7 @@ comment plus the cron line itself:
 Firing is pure cron + curl — homie doesn't need to be running. One-time entries
 are date-guarded and pruned automatically whenever the block is touched.
 Weekdays/weekends follow the Israeli week: weekdays Sun-Thu (0-4), weekend Fri-Sat (5,6).
+sun_fri is every day except Shabbat: Sun-Fri (0-5).
 """
 
 import subprocess
@@ -20,7 +21,7 @@ BLOCK_START = "# --- homie schedules start ---"
 BLOCK_END = "# --- homie schedules end ---"
 META_PREFIX = "# homie-schedule:"
 
-DOW = {"once": "*", "daily": "*", "weekdays": "0-4", "weekends": "5,6"}
+DOW = {"once": "*", "daily": "*", "weekdays": "0-4", "weekends": "5,6", "sun_fri": "0-5"}
 
 
 @dataclass
