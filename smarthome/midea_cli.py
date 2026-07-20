@@ -1,13 +1,19 @@
 import os
 import sys
 import json
+import time
 import asyncio
 
 from msmart.device import AirConditioner as AC
 from msmart.discover import Discover
+from msmart.lan import AuthenticationError, ProtocolError
 
 HERE = os.path.dirname(__file__)
 DEVICES = os.path.join(HERE, "midea_devices.json")
+
+_ip_by_id = {}
+_ip_by_id_at = 0.0
+_IP_TTL = 20.0
 
 
 def load_devices():
@@ -34,11 +40,49 @@ async def discover_and_save():
     return devices
 
 
-async def connect(d):
-    ac = AC(ip=d["ip"], device_id=int(d["id"]), port=6444)
+def _persist_ips(ip_by_id):
+    if not os.path.exists(DEVICES):
+        return
+    devices = load_devices()
+    changed = False
+    for x in devices:
+        ip = ip_by_id.get(int(x["id"]))
+        if ip and x.get("ip") != ip:
+            x["ip"] = ip
+            changed = True
+    if changed:
+        with open(DEVICES, "w") as f:
+            json.dump(devices, f, indent=2, ensure_ascii=False)
+
+
+async def _resolve_ips():
+    global _ip_by_id, _ip_by_id_at
+    found = await Discover.discover(auto_connect=False, timeout=4)
+    _ip_by_id = {int(x.id): x.ip for x in found}
+    _ip_by_id_at = time.monotonic()
+    _persist_ips(_ip_by_id)
+    return _ip_by_id
+
+
+async def _open(ip, d):
+    ac = AC(ip=ip, device_id=int(d["id"]), port=6444)
     await ac.authenticate(d["token"], d["key"])
     await ac.refresh()
     return ac
+
+
+async def connect(d):
+    try:
+        return await _open(d["ip"], d)
+    except (AuthenticationError, ProtocolError, OSError):
+        did = int(d["id"])
+        ip = _ip_by_id.get(did) if (time.monotonic() - _ip_by_id_at) < _IP_TTL else None
+        if not ip or ip == d["ip"]:
+            ip = (await _resolve_ips()).get(did)
+        if not ip or ip == d["ip"]:
+            raise
+        d["ip"] = ip
+        return await _open(ip, d)
 
 
 async def state(d):
