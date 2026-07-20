@@ -8,6 +8,7 @@ protects — no audio, no STT/TTS, drivable from plain typed input.
 """
 
 import json
+import time
 
 from homie.context import ConversationContext
 from homie.tracing import NoopTracer
@@ -84,6 +85,8 @@ class Brain:
         self.clock = clock
         self.tracer = tracer or NoopTracer()
         self.conversation = ConversationContext(config.context_window_seconds, clock)
+        self.last_llm_seconds = 0.0
+        self.last_tool_seconds = 0.0
 
     def _tool_schemas(self):
         return [t.anthropic_schema() for t in self.tools]
@@ -130,19 +133,25 @@ class Brain:
         system = build_system_prompt(self.ctx.channel, self.clock)
         schemas = self._tool_schemas() or None
         params = {"max_tokens": self.config.max_tokens}
+        self.last_llm_seconds = 0.0
+        self.last_tool_seconds = 0.0
 
         for _ in range(MAX_TOOL_ITERATIONS):
             messages = self.conversation.get()
             with self.tracer.generation(
                 messages, self.config.model, params, system=system, tools=schemas
             ) as gen:
-                response = self.client.messages.create(
-                    model=self.config.model,
-                    max_tokens=self.config.max_tokens,
-                    system=system,
-                    messages=messages,
-                    tools=schemas,
-                )
+                t_llm = time.perf_counter()
+                try:
+                    response = self.client.messages.create(
+                        model=self.config.model,
+                        max_tokens=self.config.max_tokens,
+                        system=system,
+                        messages=messages,
+                        tools=schemas,
+                    )
+                finally:
+                    self.last_llm_seconds += time.perf_counter() - t_llm
                 gen.result(
                     output=[b.model_dump() for b in response.content],
                     usage={
@@ -156,7 +165,9 @@ class Brain:
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
+                    t_tool = time.perf_counter()
                     result = self._run_tool(block.name, block.input)
+                    self.last_tool_seconds += time.perf_counter() - t_tool
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,

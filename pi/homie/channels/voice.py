@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from homie.audio.processing import pcm_to_wav
@@ -100,6 +101,7 @@ class VoiceChannel(Channel):
         import pvporcupine
         from pvrecorder import PvRecorder
 
+        self.voice.tracer = brain.tracer
         access_key = os.environ["PORCUPINE_ACCESS_KEY"]
         keyword_path = os.environ.get(
             "WAKE_WORD_PATH", str(Path(__file__).resolve().parent.parent.parent / "hey-homie.ppn")
@@ -138,6 +140,7 @@ class VoiceChannel(Channel):
         before falling back to the Enter prompt. Same _converse() path as wake mode."""
         from pvrecorder import PvRecorder
 
+        self.voice.tracer = brain.tracer
         self.frame_length = 512
         device_index = _select_mic(PvRecorder)
         print(f"Using mic device index {device_index}")
@@ -182,7 +185,11 @@ class VoiceChannel(Channel):
                 return
             print(f"   heard: {transcript}")
             self._filler_proc = self.fillers.play()  # instant "on it" while the brain works
+            self.voice.last_tts_seconds = 0.0  # a reply with no speech must not inherit last turn's
+            t_brain = time.perf_counter()
             reply = brain.handle(transcript)
+            brain_s = time.perf_counter() - t_brain
+            self._log_latency(brain, brain_s)
             self._flush_recorder()  # drop audio buffered during TTS so we don't hear ourselves
             if not _expects_reply(reply):
                 self.voice.listening_close()
@@ -192,6 +199,21 @@ class VoiceChannel(Channel):
             if prefill is None:
                 self.voice.listening_close()
                 return
+
+    def _log_latency(self, brain, brain_s: float) -> None:
+        """One line per turn: where the time went from end-of-speech to reply. stt and
+        tts are Deepgram round-trips; llm/tools are the brain; 'speak' is TTS playback
+        plus any wait for the filler to finish (it overlaps thinking, so usually small)."""
+        stt = self.voice.last_stt_seconds
+        llm = brain.last_llm_seconds
+        tools = brain.last_tool_seconds
+        tts = self.voice.last_tts_seconds
+        speak = max(0.0, brain_s - llm - tools - tts)
+        total = stt + brain_s
+        print(
+            f"   ⏱ latency {total:.1f}s: stt {stt:.1f} · llm {llm:.1f} · "
+            f"tools {tools:.1f} · tts {tts:.1f} · speak {speak:.1f}"
+        )
 
     def _record_turn(self, prefill: list = None) -> bytes:
         """Record one utterance. Waits up to SPEECH_WAIT for the user to start

@@ -5,40 +5,55 @@ so the caller can kill it for barge-in."""
 import os
 import subprocess
 import tempfile
+import time
 
 import requests
+
+from homie.tracing import NoopTracer
 
 STT_URL = "https://api.deepgram.com/v1/listen"
 TTS_URL = "https://api.deepgram.com/v1/speak"
 
 
 class DeepgramVoice:
-    def __init__(self, stt_model="nova-2", tts_model="aura-2-thalia-en"):
+    def __init__(self, stt_model="nova-2", tts_model="aura-2-thalia-en", tracer=None):
         self.api_key = os.environ["DEEPGRAM_API_KEY"]
         self.stt_model = stt_model
         self.tts_model = tts_model
+        self.tracer = tracer or NoopTracer()
+        self.last_stt_seconds = 0.0
+        self.last_tts_seconds = 0.0
 
     def transcribe(self, wav_bytes: bytes) -> str:
-        resp = requests.post(
-            STT_URL,
-            params={"model": self.stt_model, "smart_format": "true", "language": "en"},
-            headers={"Authorization": f"Token {self.api_key}", "Content-Type": "audio/wav"},
-            data=wav_bytes,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        alts = resp.json()["results"]["channels"][0]["alternatives"]
-        return alts[0]["transcript"].strip() if alts else ""
+        t0 = time.perf_counter()
+        with self.tracer.stt(len(wav_bytes)) as span:
+            resp = requests.post(
+                STT_URL,
+                params={"model": self.stt_model, "smart_format": "true", "language": "en"},
+                headers={"Authorization": f"Token {self.api_key}", "Content-Type": "audio/wav"},
+                data=wav_bytes,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            alts = resp.json()["results"]["channels"][0]["alternatives"]
+            transcript = alts[0]["transcript"].strip() if alts else ""
+            self.last_stt_seconds = time.perf_counter() - t0
+            span.result(output=transcript)
+        return transcript
 
     def synthesize(self, text: str) -> bytes:
-        resp = requests.post(
-            TTS_URL,
-            params={"model": self.tts_model},
-            headers={"Authorization": f"Token {self.api_key}", "Content-Type": "application/json"},
-            json={"text": text},
-            timeout=30,
-        )
-        resp.raise_for_status()
+        t0 = time.perf_counter()
+        with self.tracer.tts(text) as span:
+            resp = requests.post(
+                TTS_URL,
+                params={"model": self.tts_model},
+                headers={"Authorization": f"Token {self.api_key}", "Content-Type": "application/json"},
+                json={"text": text},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            self.last_tts_seconds = time.perf_counter() - t0
+            span.result()
         return resp.content
 
     def speak(self, text: str) -> None:

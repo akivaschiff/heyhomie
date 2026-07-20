@@ -30,6 +30,12 @@ class NoopTracer:
     def tool(self, name, tool_input):
         return _NoopRec()
 
+    def stt(self, audio_bytes=0):
+        return _NoopRec()
+
+    def tts(self, text=""):
+        return _NoopRec()
+
     def flush(self):
         pass
 
@@ -85,6 +91,20 @@ class LangfuseTracer:
         return _LangfuseRec(
             self.client.start_as_current_observation(
                 name=name, as_type="tool", input=tool_input
+            )
+        )
+
+    def stt(self, audio_bytes=0):
+        return _LangfuseRec(
+            self.client.start_as_current_observation(
+                name="stt", as_type="span", metadata={"audio_bytes": audio_bytes}
+            )
+        )
+
+    def tts(self, text=""):
+        return _LangfuseRec(
+            self.client.start_as_current_observation(
+                name="tts", as_type="span", input=text
             )
         )
 
