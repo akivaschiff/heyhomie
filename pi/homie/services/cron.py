@@ -21,6 +21,12 @@ BLOCK_START = "# --- homie schedules start ---"
 BLOCK_END = "# --- homie schedules end ---"
 META_PREFIX = "# homie-schedule:"
 
+# Master kill switch: when disabled, every schedule's cron line is commented out
+# with DISABLED_PREFIX (so cron never fires it) and DISABLED_MARK records the state.
+# Entries survive untouched, so re-enabling restores them verbatim.
+DISABLED_MARK = "# homie-schedules-disabled"
+DISABLED_PREFIX = "#OFF# "
+
 DOW = {"once": "*", "daily": "*", "weekdays": "0-4", "weekends": "5,6", "sun_fri": "0-5"}
 
 
@@ -64,23 +70,41 @@ class CronStore:
 
     # --- block manipulation (pure string work, shared with FakeCronStore) ---
 
+    def enabled(self) -> bool:
+        inside = False
+        for line in self.read_crontab().splitlines():
+            s = line.strip()
+            if s == BLOCK_START:
+                inside = True
+            elif s == BLOCK_END:
+                inside = False
+            elif inside and s == DISABLED_MARK:
+                return False
+        return True
+
     def entries(self) -> list:
         lines = self.read_crontab().splitlines()
         entries, meta = [], None
         inside = False
         for line in lines:
-            if line.strip() == BLOCK_START:
+            s = line.strip()
+            if s == BLOCK_START:
                 inside = True
-            elif line.strip() == BLOCK_END:
+            elif s == BLOCK_END:
                 inside = False
+            elif inside and s == DISABLED_MARK:
+                continue
             elif inside and line.startswith(META_PREFIX):
                 meta = line[len(META_PREFIX):].split(":", 3)
             elif inside and meta is not None:
-                entries.append(Entry(meta[0], meta[1], meta[2], meta[3], line))
+                cron = line[len(DISABLED_PREFIX):] if line.startswith(DISABLED_PREFIX) else line
+                entries.append(Entry(meta[0], meta[1], meta[2], meta[3], cron))
                 meta = None
         return entries
 
-    def save_entries(self, entries: list) -> None:
+    def save_entries(self, entries: list, enabled: bool = None) -> None:
+        if enabled is None:
+            enabled = self.enabled()
         lines = self.read_crontab().splitlines()
         kept, inside = [], False
         for line in lines:
@@ -92,14 +116,21 @@ class CronStore:
                 kept.append(line)
         while kept and not kept[-1].strip():
             kept.pop()
-        if entries:
+        if entries or not enabled:
             kept.append("")
             kept.append(BLOCK_START)
+            if not enabled:
+                kept.append(DISABLED_MARK)
+            prefix = "" if enabled else DISABLED_PREFIX
             for e in entries:
                 kept.append(e.meta_line())
-                kept.append(e.cron_line)
+                kept.append(prefix + e.cron_line)
             kept.append(BLOCK_END)
         self.write_crontab("\n".join(kept) + "\n")
+
+    def set_enabled(self, flag: bool) -> bool:
+        self.save_entries(self.entries(), enabled=flag)
+        return flag
 
     def prune_stale(self, today: str) -> list:
         """Drop one-time entries whose date has passed. Returns what remains."""

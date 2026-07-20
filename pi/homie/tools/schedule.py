@@ -83,11 +83,25 @@ def _list(args: dict, ctx: ToolContext) -> str:
         return json.dumps({"error": "scheduling not configured"})
     entries = ctx.cron.prune_stale(_today(ctx))
     return json.dumps({
+        "enabled": ctx.cron.enabled(),
         "schedules": [
             {"id": e.id, "recur": e.recur, "date": e.date or None, "description": e.description}
             for e in entries
         ]
     })
+
+
+def _master(args: dict, ctx: ToolContext) -> str:
+    if ctx.cron is None:
+        return json.dumps({"error": "scheduling not configured"})
+    action = args.get("action", "status")
+    if action == "status":
+        return json.dumps({"enabled": ctx.cron.enabled()})
+    if action in ("enable", "disable"):
+        flag = action == "enable"
+        ctx.cron.set_enabled(flag)
+        return json.dumps({"enabled": flag, "schedules": len(ctx.cron.entries())})
+    return json.dumps({"error": "action must be enable, disable or status"})
 
 
 def _cancel(args: dict, ctx: ToolContext) -> str:
@@ -145,5 +159,24 @@ TOOLS = [
             "required": ["id"],
         },
         handler=_cancel,
+    ),
+    Tool(
+        name="schedules_master",
+        description=(
+            "Master on/off switch for ALL scheduled home actions at once, without "
+            "deleting them. Use when leaving for a while ('disable all schedules', "
+            "'turn off all the timers while we're away') and to turn them back on "
+            "('re-enable schedules'). Disabling stops every schedule from firing; the "
+            "schedules stay saved and resume exactly as before when re-enabled. "
+            "action 'status' reports whether schedules are currently enabled."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["enable", "disable", "status"]},
+            },
+            "required": ["action"],
+        },
+        handler=_master,
     ),
 ]

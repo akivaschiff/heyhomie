@@ -6,6 +6,7 @@ const RECURS = [
   {v:"daily", label:"Daily"},
   {v:"weekdays", label:"Weekdays (Sun–Thu)"},
   {v:"weekends", label:"Weekend (Fri–Sat)"},
+  {v:"sun_fri", label:"Sun–Fri (except Shabbat)"},
   {v:"once", label:"Once"},
 ];
 
@@ -49,13 +50,35 @@ let _targets = [];
 export async function loadSchedules(btn){
   spinBtn(btn);
   const listWrap = document.getElementById("sched-list");
-  let items;
-  try{ items = await api("/api/schedules"); }
+  let items, master;
+  try{
+    [items, master] = await Promise.all([
+      api("/api/schedules"),
+      api("/api/schedules/enabled").catch(()=>({enabled:true})),
+    ]);
+  }
   catch(e){ listWrap.innerHTML='<div class="empty">Schedules unreachable.</div>'; return; }
 
+  const enabled = master?.enabled !== false;
   listWrap.innerHTML="";
+  listWrap.classList.toggle("sched-paused", !enabled);
+
+  const bar = el(`<div class="sched-master${enabled?"":" is-off"}">
+    <div class="sm-text">
+      <div class="sm-title">All schedules</div>
+      <div class="sm-sub">${enabled ? "Active — running normally" : "Paused — nothing fires until you switch back on"}</div>
+    </div>
+    <button class="pw${enabled?" on":""}" role="switch" aria-checked="${enabled}" aria-label="toggle all schedules"></button>
+  </div>`);
+  bar.querySelector(".pw").onclick=async()=>{
+    bar.classList.add("busy");
+    await api("/api/schedules/enabled", {enabled: !enabled}, "POST").catch(()=>{});
+    loadSchedules();
+  };
+  listWrap.appendChild(bar);
+
   if(!items.length){
-    listWrap.innerHTML='<div class="empty">No schedules yet.</div>';
+    listWrap.appendChild(el('<div class="empty">No schedules yet.</div>'));
   }
   for(const s of items){
     const meta = [RECURS.find(r=>r.v===s.recur)?.label || s.recur, s.date].filter(Boolean).join(" · ");

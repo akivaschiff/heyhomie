@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "pi")))
 from homie.services.cron import CronStore, Entry, build_cron_line, build_curl
 
 SCHEDULE_BASE_URL = os.environ.get("HOMIE_SMARTHOME_URL", "http://localhost:8787").rstrip("/")
-SCHEDULE_RECURS = ("once", "daily", "weekdays", "weekends")
+SCHEDULE_RECURS = ("once", "daily", "weekdays", "weekends", "sun_fri")
 _cron = CronStore()
 
 LIST_FILE = os.environ.get(
@@ -276,6 +276,20 @@ def api_schedules_delete(sid):
         return jsonify({"error": f"no schedule '{sid}'"}), 404
     _cron.save_entries(keep)
     return jsonify({"deleted": sid})
+
+
+@app.get("/api/schedules/enabled")
+def api_schedules_enabled_get():
+    return jsonify({"enabled": _cron.enabled()})
+
+
+@app.post("/api/schedules/enabled")
+def api_schedules_enabled_set():
+    body = request.get_json(force=True)
+    if not isinstance(body.get("enabled"), bool):
+        return jsonify({"error": "enabled must be true or false"}), 400
+    _cron.set_enabled(body["enabled"])
+    return jsonify({"enabled": _cron.enabled()})
 
 
 @app.get("/api/electra")
